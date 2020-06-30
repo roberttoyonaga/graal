@@ -25,6 +25,7 @@
 package com.oracle.svm.hosted.image;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -78,6 +79,10 @@ public class LIRNativeImageCodeCache extends NativeImageCodeCache {
         return codeCacheSize;
     }
 
+    protected List<HostedMethod> sortHostedMethods() {
+        return new ArrayList<>(compilations.keySet());
+    }
+
     @SuppressWarnings("try")
     @Override
     public void layoutMethods(DebugContext debug, String imageName, BigBang bb, ForkJoinPool threadPool) {
@@ -87,13 +92,13 @@ public class LIRNativeImageCodeCache extends NativeImageCodeCache {
             // Assign a location to all methods.
             assert codeCacheSize == 0;
             HostedMethod firstMethod = null;
-            for (Entry<HostedMethod, CompilationResult> entry : compilations.entrySet()) {
+            List<HostedMethod> hostedMethods = sortHostedMethods();
+            for (HostedMethod method : hostedMethods) {
 
-                HostedMethod method = entry.getKey();
                 if (firstMethod == null) {
                     firstMethod = method;
                 }
-                CompilationResult compilation = entry.getValue();
+                CompilationResult compilation = compilations.get(method);
                 compilationsByStart.put(codeCacheSize, compilation);
                 method.setCodeAddressOffset(codeCacheSize);
                 codeCacheSize = NumUtil.roundUp(codeCacheSize + compilation.getTargetCodeSize(), SubstrateOptions.codeAlignment());
