@@ -22,7 +22,7 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package org.graalvm.util.test;
+package org.graalvm.compiler.util.test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;

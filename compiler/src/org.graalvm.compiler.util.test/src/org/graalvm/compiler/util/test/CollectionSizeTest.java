@@ -22,7 +22,7 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package org.graalvm.util.test;
+package org.graalvm.compiler.util.test;
 
 import static org.junit.Assert.assertEquals;
 
