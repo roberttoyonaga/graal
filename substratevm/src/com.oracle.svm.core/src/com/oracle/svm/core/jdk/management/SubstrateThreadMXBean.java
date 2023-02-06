@@ -145,7 +145,7 @@ public final class SubstrateThreadMXBean implements com.sun.management.ThreadMXB
     @Override
     public long[] getAllThreadIds() {
         // TODO: implement later
-        return null;
+        return new long[0];
     }
 
     @Override
@@ -157,7 +157,7 @@ public final class SubstrateThreadMXBean implements com.sun.management.ThreadMXB
     @Override
     public ThreadInfo[] getThreadInfo(long[] ids) {
         // TODO: implement later
-        return null;
+        return new ThreadInfo[0];
     }
 
     @Override
@@ -169,7 +169,7 @@ public final class SubstrateThreadMXBean implements com.sun.management.ThreadMXB
     @Override
     public ThreadInfo[] getThreadInfo(long[] ids, int maxDepth) {
         // TODO: implement later
-        return null;
+        return new ThreadInfo[0];
     }
 
     @Override
@@ -252,13 +252,13 @@ public final class SubstrateThreadMXBean implements com.sun.management.ThreadMXB
     @Override
     public long[] findMonitorDeadlockedThreads() {
         // TODO: implement later
-        throw null;
+        return new long[0];
     }
 
     @Override
     public long[] findDeadlockedThreads() {
         // TODO: implement later
-        throw null;
+        return new long[0];
     }
 
     @Override
@@ -276,13 +276,13 @@ public final class SubstrateThreadMXBean implements com.sun.management.ThreadMXB
     @Override
     public ThreadInfo[] getThreadInfo(long[] ids, boolean lockedMonitors, boolean lockedSynchronizers) {
         // TODO: implement later
-        return null;
+        return new ThreadInfo[0];
     }
 
     @Override
     public ThreadInfo[] dumpAllThreads(boolean lockedMonitors, boolean lockedSynchronizers) {
         // TODO: implement later
-        return null;
+        return new ThreadInfo[0];
     }
 
     @Override
