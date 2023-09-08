@@ -34,6 +34,7 @@ import com.oracle.svm.core.Uninterruptible;
  * IDs depend on the JDK version (see metadata.xml file) and are computed at image build time.
  */
 public final class JfrEvent {
+<<<<<<< HEAD
     public static final JfrEvent ThreadStart = create("jdk.ThreadStart");
     public static final JfrEvent ThreadEnd = create("jdk.ThreadEnd");
     public static final JfrEvent DataLoss = create("jdk.DataLoss");
@@ -60,6 +61,9 @@ public final class JfrEvent {
     public static final JfrEvent JavaMonitorWait = create("jdk.JavaMonitorWait");
     public static final JfrEvent JavaMonitorInflate = create("jdk.JavaMonitorInflate");
     public static final JfrEvent ObjectAllocationInNewTLAB = create("jdk.ObjectAllocationInNewTLAB");
+    public static final JfrEvent ObjectCount = create("jdk.ObjectCount");
+    public static final JfrEvent ObjectCountAfterGC = create("jdk.ObjectCountAfterGC");
+
 
     private final long id;
     private final String name;
