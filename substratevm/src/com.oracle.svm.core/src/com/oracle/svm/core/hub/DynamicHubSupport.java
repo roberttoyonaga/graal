@@ -49,7 +49,6 @@ public final class DynamicHubSupport {
         this.maxTypeId = maxTypeId;
     }
 
-    @Platforms(Platform.HOSTED_ONLY.class)
     public int getMaxTypeId() {
         return maxTypeId;
     }

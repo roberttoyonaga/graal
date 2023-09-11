@@ -46,6 +46,8 @@ public class GCCause {
     @DuplicatedInNativeCode public static final GCCause UnitTest = new GCCause("UnitTest", 1);
     @DuplicatedInNativeCode public static final GCCause TestGCInDeoptimizer = new GCCause("TestGCInDeoptimizer", 2);
     @DuplicatedInNativeCode public static final GCCause HintedGC = new GCCause("Hint", 3);
+    @DuplicatedInNativeCode public static final GCCause JfrObjectCount = new GCCause("Required for JFR object counting ", 4);
+
 
     @UnknownObjectField(types = GCCause[].class) //
     protected static GCCause[] GCCauses;

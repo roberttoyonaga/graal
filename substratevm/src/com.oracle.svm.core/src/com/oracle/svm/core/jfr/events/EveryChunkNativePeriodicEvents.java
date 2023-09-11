@@ -50,7 +50,6 @@ public class EveryChunkNativePeriodicEvents extends Event {
                         threadMXBean.getTotalStartedThreadCount(), threadMXBean.getPeakThreadCount());
 
         emitPhysicalMemory(com.oracle.svm.core.heap.PhysicalMemory.size().rawValue(), 0);
-        emitObjectCount();
     }
 
     @Uninterruptible(reason = "Accesses a JFR buffer.")
@@ -81,21 +80,5 @@ public class EveryChunkNativePeriodicEvents extends Event {
             JfrNativeEventWriter.putLong(data, usedSize);
             JfrNativeEventWriter.endSmallEvent(data);
         }
-    }
-
-//    @Uninterruptible(reason = "Set and unset should be atomic with invoked GC to avoid races.")
-    /** It's ok if two GCs race to unset the flag shouldSendRequestableEvent. Only one will produce events.*/ // *** a gc cannot already be in-progess when we are in this method //TODO revisit logic
-    private static void emitObjectCount(){
-        if (shouldEmitUnsafe()) {
-            com.oracle.svm.core.jfr.events.ObjectCountEventSupport.setShouldSendRequestableEvent(true);
-            Runtime.getRuntime().gc();
-//            com.oracle.svm.core.jfr.events.ObjectCountEventSupport.setShouldSendRequestableEvent(false);
-        }
-    }
-
-    @Uninterruptible(reason = "Used to avoid the GC and heap walk if it is not absolutely needed.")
-    private static boolean shouldEmitUnsafe() {
-        /* The returned value is racy. */
-        return JfrEvent.ObjectCount.shouldEmit();
     }
 }

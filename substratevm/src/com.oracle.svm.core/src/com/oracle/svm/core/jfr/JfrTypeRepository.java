@@ -104,15 +104,25 @@ public class JfrTypeRepository implements JfrRepository {
         return typeInfo;
     }
 
+    boolean isClassGenerated(Class<?> clazz){
+        return clazz != null && clazz.getPackage() != null && clazz.getPackage().getName().equals("jdk.internal.reflect")
+                && clazz.getName().contains("GeneratedSerializationConstructorAccessor");
+    }
     private void visitClass(TypeInfo typeInfo, Class<?> clazz) {
-        if (clazz != null && addClass(typeInfo, clazz)) {
-            visitPackage(typeInfo, clazz.getPackage(), clazz.getModule());
+        if ((clazz != null && addClass(typeInfo, clazz))) {
+            visitPackage(typeInfo, clazz.getPackage(), clazz.getModule(), isClassGenerated(clazz));
             visitClass(typeInfo, clazz.getSuperclass());
+            visitClassLoader(typeInfo, clazz.getClassLoader());
         }
     }
 
-    private void visitPackage(TypeInfo typeInfo, Package pkg, Module module) {
-        if (pkg != null && addPackage(typeInfo, pkg, module)) {
+    // TODO need to add two module entries in map if generated class ( 1pkg --> 2 modules)... WHY?
+    // TODO can 1 module -- > 2 classLoaders ? [probably not.]
+    // TODO can 1 class -- > 2 packages ? [NO]
+    //TODO: is there only one "unnamed module" if so we can lazily add it to the module map when we see it [but theres no point because its only referenced from the packages entries, not the classes]
+    // TODO: only use packageInfo containing unnamed module if no non-generated classes are encountered
+    private void visitPackage(TypeInfo typeInfo, Package pkg, Module module, boolean generated) {
+        if (pkg != null && addPackage(typeInfo, pkg, module, generated)) {
             visitModule(typeInfo, module);
         }
     }
@@ -250,10 +260,14 @@ public class JfrTypeRepository implements JfrRepository {
         return typeInfo.classes.contains(clazz) || flushedClasses.contains(clazz);
     }
 
-    private boolean addPackage(TypeInfo typeInfo, Package pkg, Module module) {
+    private boolean addPackage(TypeInfo typeInfo, Package pkg, Module module, boolean generated) {
         if (isPackageVisited(typeInfo, pkg)) {
-            assert module == (flushedPackages.containsKey(pkg.getName()) ? flushedPackages.get(pkg.getName()).module : typeInfo.packages.get(pkg.getName()).module);
-            return false;
+            Module cached = (flushedPackages.containsKey(pkg.getName()) ? flushedPackages.get(pkg.getName()).module : typeInfo.packages.get(pkg.getName()).module);
+            if (cached.isNamed() || !module.isNamed()){
+                assert module == cached || (generated && !module.isNamed());
+                return false;
+            }
+            assert module != cached && !generated;
         }
         // The empty package represented by "" is always traced with id 0
         long id = pkg.getName().isEmpty() ? 0 : ++currentPackageId;

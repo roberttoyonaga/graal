@@ -365,6 +365,7 @@ suite = {
             ],
             "requires" : [
                 "jdk.management",
+                "jdk.jfr",
             ],
             "requiresConcealed" : {
                 "java.base": [

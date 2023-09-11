@@ -1,4 +1,4 @@
-package com.oracle.svm.core.jfr.events;
+package com.oracle.svm.core.jfr.utils;
 
 import org.graalvm.nativeimage.c.struct.RawStructure;
 import org.graalvm.nativeimage.c.struct.RawField;
