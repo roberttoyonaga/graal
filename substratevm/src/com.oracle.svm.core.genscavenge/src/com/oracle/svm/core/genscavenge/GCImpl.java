@@ -239,11 +239,10 @@ public final class GCImpl implements GC {
                 }
             } finally {
                 JfrGCEvents.emitGarbageCollectionEvent(getCollectionEpoch(), cause, startTicks);
+                ObjectCountEventSupport.emitEvents((int) getCollectionEpoch().rawValue(), startTicks);
             }
         } finally {
             nav.close();
-            JfrGCEvents.emitGarbageCollectionEvent(getCollectionEpoch(), cause, startTicks);
-            ObjectCountEventSupport.emitEvents((int) getCollectionEpoch().rawValue(), startTicks);
         }
 
         postcondition();

@@ -34,7 +34,6 @@ import com.oracle.svm.core.Uninterruptible;
  * IDs depend on the JDK version (see metadata.xml file) and are computed at image build time.
  */
 public final class JfrEvent {
-<<<<<<< HEAD
     public static final JfrEvent ThreadStart = create("jdk.ThreadStart");
     public static final JfrEvent ThreadEnd = create("jdk.ThreadEnd");
     public static final JfrEvent DataLoss = create("jdk.DataLoss");
