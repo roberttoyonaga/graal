@@ -24,10 +24,12 @@
  */
 package com.oracle.svm.core.jfr;
 
+import com.oracle.svm.core.Uninterruptible;
 import org.graalvm.compiler.core.common.NumUtil;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
 
+import com.oracle.svm.core.jdk.UninterruptibleUtils;
 import com.oracle.svm.core.os.VirtualMemoryProvider;
 
 import jdk.jfr.internal.Options;
@@ -42,26 +44,32 @@ public class JfrOptionSet {
     private static final int GLOBAL_BUFFER_COUNT = 4;
     private static final int THREAD_BUFFER_SIZE = 8;
 
+    private static final long DEFAULT_STACK_DEPTH = 64; // TODO maybe alias this (similar to
+                                                        // Target_jdk_jfr_internal_settings_ThrottleSetting.OFF)
     private static final long MAX_ADJUSTED_GLOBAL_BUFFER_SIZE = 1 * 1024 * 1024;
     private static final long MIN_ADJUSTED_GLOBAL_BUFFER_SIZE_CUTOFF = 512 * 1024;
+    private static final long MAX_STACK_DEPTH = 2048;
     private static final long MIN_GLOBAL_BUFFER_SIZE = 64 * 1024;
     private static final long MIN_GLOBAL_BUFFER_COUNT = 2;
     private static final long MIN_THREAD_BUFFER_SIZE = 4 * 1024;
     private static final long MIN_MEMORY_SIZE = 1 * 1024 * 1024;
+    private static final long MIN_STACK_DEPTH = 1;
 
     public final JfrOptionLong threadBufferSize;
     public final JfrOptionLong globalBufferSize;
     public final JfrOptionLong globalBufferCount;
     public final JfrOptionLong memorySize;
     public final JfrOptionLong maxChunkSize;
+    public final JfrOptionLong stackDepth;
 
     @Platforms(Platform.HOSTED_ONLY.class)
     public JfrOptionSet() {
-        threadBufferSize = new JfrOptionLong(Options.getThreadBufferSize());
-        globalBufferSize = new JfrOptionLong(Options.getGlobalBufferSize());
-        globalBufferCount = new JfrOptionLong(Options.getGlobalBufferCount());
-        memorySize = new JfrOptionLong(Options.getMemorySize());
-        maxChunkSize = new JfrOptionLong(Options.getMaxChunkSize());
+        threadBufferSize = new JfrOptionLong(Options.getThreadBufferSize(), MIN_THREAD_BUFFER_SIZE, Long.MAX_VALUE);
+        globalBufferSize = new JfrOptionLong(Options.getGlobalBufferSize(), MIN_GLOBAL_BUFFER_SIZE, Long.MAX_VALUE);
+        globalBufferCount = new JfrOptionLong(Options.getGlobalBufferCount(), MIN_GLOBAL_BUFFER_COUNT, Long.MAX_VALUE);
+        memorySize = new JfrOptionLong(Options.getMemorySize(), MIN_MEMORY_SIZE, Long.MAX_VALUE);
+        maxChunkSize = new JfrOptionLong(Options.getMaxChunkSize(), 0, Long.MAX_VALUE);
+        stackDepth = new JfrOptionLong(DEFAULT_STACK_DEPTH, MIN_STACK_DEPTH, MAX_STACK_DEPTH);
     }
 
     public void validateAndAdjustMemoryOptions() {
@@ -349,12 +357,16 @@ public class JfrOptionSet {
 
     public static class JfrOptionLong {
         private final long defaultValue;
+        private final long max;
+        private final long min;
         private boolean setByUser;
         private long value;
 
         @Platforms(Platform.HOSTED_ONLY.class)
-        JfrOptionLong(long defaultValue) {
+        JfrOptionLong(long defaultValue, long min, long max) {
             this.defaultValue = defaultValue;
+            this.max = max;
+            this.min = min;
             this.value = defaultValue;
             this.setByUser = false;
         }
@@ -363,6 +375,7 @@ public class JfrOptionSet {
             return defaultValue;
         }
 
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
         public long getValue() {
             return value;
         }
@@ -372,7 +385,7 @@ public class JfrOptionSet {
         }
 
         public void setUserValue(long v) {
-            this.value = v;
+            this.value = UninterruptibleUtils.Math.clamp(v, min, max);
             this.setByUser = true;
         }
 

@@ -62,31 +62,15 @@ import com.oracle.svm.core.stack.JavaStackWalker;
  * Repository that collects all metadata about stacktraces.
  */
 public class JfrStackTraceRepository implements JfrRepository {
-    private static final int DEFAULT_STACK_DEPTH = 64;
-    private static final int MIN_STACK_DEPTH = 1;
-    private static final int MAX_STACK_DEPTH = 2048;
-
     private final VMMutex mutex;
     private final JfrStackTraceEpochData epochData0;
     private final JfrStackTraceEpochData epochData1;
-
-    private int stackTraceDepth;
 
     @Platforms(Platform.HOSTED_ONLY.class)
     JfrStackTraceRepository() {
         this.mutex = new VMMutex("jfrStackTraceRepository");
         this.epochData0 = new JfrStackTraceEpochData();
         this.epochData1 = new JfrStackTraceEpochData();
-        this.stackTraceDepth = DEFAULT_STACK_DEPTH;
-    }
-
-    public void setStackTraceDepth(int value) {
-        stackTraceDepth = UninterruptibleUtils.Math.clamp(value, MIN_STACK_DEPTH, MAX_STACK_DEPTH);
-    }
-
-    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-    public int getStackTraceDepth() {
-        return stackTraceDepth;
     }
 
     public void teardown() {

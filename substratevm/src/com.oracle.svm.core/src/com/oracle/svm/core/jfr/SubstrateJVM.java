@@ -459,7 +459,12 @@ public class SubstrateJVM {
      * See {@link JVM#setStackDepth}.
      */
     public void setStackDepth(int depth) {
-        stackTraceRepo.setStackTraceDepth(depth);
+        options.stackDepth.setUserValue(depth);
+    }
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    public int getStackDepth() {
+        return (int) options.stackDepth.getValue();
     }
 
     /**
