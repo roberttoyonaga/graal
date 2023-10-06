@@ -211,6 +211,7 @@ public class SubstrateJVM {
         } else if (initialized) {
             throw new IllegalStateException("JFR was already started before");
         }
+        System.out.println("_________________-createJFR_________________");
 
         options.validateAndAdjustMemoryOptions();
 
@@ -465,6 +466,16 @@ public class SubstrateJVM {
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public int getStackDepth() {
         return (int) options.stackDepth.getValue();
+    }
+
+    public void setMaxChunkSize(long size) {
+        JfrChunkWriter chunkWriter = unlockedChunkWriter.lock();
+        try {
+            options.maxChunkSize.setUserValue(size);
+            chunkWriter.initialize(size);
+        } finally {
+            chunkWriter.unlock();
+        }
     }
 
     /**

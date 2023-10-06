@@ -130,6 +130,7 @@ public class JfrManager {
         Boolean dumpOnExit = parseBoolean(startArgs, JfrStartArgument.DumpOnExit);
         Boolean pathToGcRoots = parseBoolean(startArgs, JfrStartArgument.PathToGCRoots);
         String stackDepth = optionsArgs.get(FlightRecorderOptionsArgument.StackDepth);
+        Long maxChunkSize = parseMaxSize(optionsArgs, FlightRecorderOptionsArgument.MaxChunkSize);
 
         try {
             if (Logger.shouldLog(LogTag.JFR_DCMD, LogLevel.DEBUG)) {
@@ -194,6 +195,10 @@ public class JfrManager {
                 }
             }
 
+            if (maxChunkSize != null) {
+                SubstrateJVM.get().setMaxChunkSize(maxChunkSize);
+            }
+
             Recording recording = new Recording();
             if (name != null) {
                 recording.setName(name);
@@ -253,6 +258,7 @@ public class JfrManager {
                 msg.append(JfrJdkCompatibility.formatTimespan(dDelay, " "));
                 msg.append(".");
             } else {
+                System.out.println("__________STARTING RECORDING_____________");
                 recording.start();
                 msg.append("Started recording " + recording.getId() + ".");
             }
@@ -394,7 +400,7 @@ public class JfrManager {
         return null;
     }
 
-    private static Long parseMaxSize(Map<JfrArgument, String> args, JfrStartArgument key) {
+    private static Long parseMaxSize(Map<JfrArgument, String> args, JfrArgument key) {
         final String value = args.get(key);
         if (value != null) {
             try {
@@ -427,7 +433,7 @@ public class JfrManager {
                         return number;
                 }
             } catch (IllegalArgumentException e) {
-                throw VMError.shouldNotReachHere("Could not parse JFR argument '" + key.cmdLineKey + "=" + value + "'. " + e.getMessage());
+                throw VMError.shouldNotReachHere("Could not parse JFR argument '" + key.getCmdLineKey() + "=" + value + "'. " + e.getMessage());
             }
         }
         return null;

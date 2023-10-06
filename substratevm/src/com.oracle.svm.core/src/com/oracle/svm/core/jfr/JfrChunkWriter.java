@@ -209,6 +209,7 @@ public final class JfrChunkWriter implements JfrUnlockedChunkWriter {
          * Switch to a new epoch. This is done at a safepoint to ensure that we end up with
          * consistent data, even if multiple threads have JFR events in progress.
          */
+        System.out.println("max chunk size=="+notificationThreshold);
         JfrChangeEpochOperation op = new JfrChangeEpochOperation();
         op.enqueue();
 
