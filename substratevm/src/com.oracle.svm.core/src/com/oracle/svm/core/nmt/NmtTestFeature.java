@@ -25,38 +25,17 @@
  */
 
 package com.oracle.svm.core.nmt;
-
-import com.oracle.svm.core.SubstrateOptions;
-import com.oracle.svm.core.VMInspectionOptions;
+import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.ImageSingletons;
 
-import com.oracle.svm.core.feature.AutomaticallyRegisteredFeature;
-import com.oracle.svm.core.feature.InternalFeature;
-import com.oracle.svm.core.jdk.RuntimeSupport;
-
-@AutomaticallyRegisteredFeature
-public class NmtFeature implements InternalFeature {
-    @Override
-    public boolean isInConfiguration(IsInConfigurationAccess access) {
-        return isInConfiguration();
-    }
-
-    public static boolean isInConfiguration() {
-        return VMInspectionOptions.hasNmtSupport();
-    }
-
+/** This feature is required to omit the startup and shutdown hooks.*/
+class NmtTestFeature implements Feature {
     @Override
     public void afterRegistration(AfterRegistrationAccess access) {
         ImageSingletons.add(NativeMemoryTracking.class, new NativeMemoryTracking());
     }
-
     @Override
-    public void beforeAnalysis(BeforeAnalysisAccess access) {
-        RuntimeSupport runtime = RuntimeSupport.getRuntimeSupport();
-
-        runtime.addShutdownHook(NativeMemoryTracking.shutdownHook());
-        runtime.addStartupHook(NativeMemoryTracking.startupHook());
+    public boolean isInConfiguration(IsInConfigurationAccess access) {
+        return !NmtFeature.isInConfiguration();
     }
-
-
 }

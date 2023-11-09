@@ -44,7 +44,7 @@ class WindowsUnmanagedMemorySupportImpl implements UnmanagedMemorySupport {
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public <T extends PointerBase> T malloc(UnsignedWord size) {
-        return malloc(size, NmtFlag.Default.ordinal());
+        return malloc(size, NmtFlag.mtNone.ordinal());
     }
 
     @Override
@@ -56,7 +56,7 @@ class WindowsUnmanagedMemorySupportImpl implements UnmanagedMemorySupport {
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public <T extends PointerBase> T calloc(UnsignedWord size) {
-        return calloc(size, NmtFlag.Default.ordinal());
+        return calloc(size, NmtFlag.mtNone.ordinal());
     }
 
     @Override
@@ -68,13 +68,26 @@ class WindowsUnmanagedMemorySupportImpl implements UnmanagedMemorySupport {
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public <T extends PointerBase> T realloc(T ptr, UnsignedWord size) {
-        return realloc(ptr, size, NmtFlag.Default.ordinal());
+        return realloc(ptr, size, NmtFlag.mtNone.ordinal());
     }
 
     @Override
     public <T extends PointerBase> T realloc(T ptr, UnsignedWord size, int flag) {
-        Pointer outerPointer = libc().realloc(ptr, size.add(NativeMemoryTracking.getHeaderSize()));
-        return (T) NativeMemoryTracking.recordMalloc(outerPointer, size, flag);
+        // Retrieve necessary data from the old block
+        Pointer oldOuterPointer = ((Pointer) ptr).subtract(NativeMemoryTracking.getHeaderSize());
+        long oldSize = NativeMemoryTracking.getAllocationSize(oldOuterPointer);
+        int oldCategory = NativeMemoryTracking.getAllocationCategory(oldOuterPointer);
+
+        // Perform the realloc
+        Pointer newOuterPointer = libc().realloc(oldOuterPointer, size.add(NativeMemoryTracking.getHeaderSize()));
+
+        // Only deaccount the old block, if we were successful.
+        if (newOuterPointer.isNonNull()) {
+            NativeMemoryTracking.deaccountMalloc(oldSize, oldCategory);
+        }
+
+        // Account the new block
+        return (T) NativeMemoryTracking.recordMalloc(newOuterPointer, size, flag);
     }
 
     @Override

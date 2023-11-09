@@ -30,6 +30,7 @@ import static com.oracle.svm.core.Isolates.IMAGE_HEAP_WRITABLE_END;
 import static com.oracle.svm.core.util.PointerUtils.roundUp;
 
 import com.oracle.svm.core.code.DynamicMethodAddressResolutionHeapSupport;
+import com.oracle.svm.core.nmt.NmtFlag;
 import jdk.graal.compiler.word.Word;
 import org.graalvm.nativeimage.c.type.WordPointer;
 import org.graalvm.word.Pointer;
@@ -169,7 +170,7 @@ public abstract class AbstractCopyingImageHeapProvider extends AbstractImageHeap
                 addressSpaceStart = addressSpaceStart.subtract(preHeapRequiredBytes);
             }
 
-            if (VirtualMemoryProvider.get().free(addressSpaceStart, totalAddressSpaceSize) != 0) {
+            if (VirtualMemoryProvider.get().free(addressSpaceStart, totalAddressSpaceSize, NmtFlag.mtJavaHeap.ordinal()) != 0) {
                 return CEntryPointErrors.FREE_IMAGE_HEAP_FAILED;
             }
         }

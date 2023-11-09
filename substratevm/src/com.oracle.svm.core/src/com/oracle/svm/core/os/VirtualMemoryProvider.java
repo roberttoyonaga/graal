@@ -94,6 +94,7 @@ public interface VirtualMemoryProvider {
      *         address range, or {@link WordFactory#nullPointer()} in case of an error.
      */
     Pointer reserve(UnsignedWord nbytes, UnsignedWord alignment, boolean code);
+    Pointer reserve(UnsignedWord nbytes, UnsignedWord alignment, boolean code, int flag);
     Pointer reserve(UnsignedWord nbytes, UnsignedWord alignment, boolean code, NmtVirtualMemoryData nmtData);
 
 
@@ -118,6 +119,7 @@ public interface VirtualMemoryProvider {
      *         of an error.
      */
     Pointer mapFile(PointerBase start, UnsignedWord nbytes, WordBase fileHandle, UnsignedWord offset, int access);
+    Pointer mapFile(PointerBase start, UnsignedWord nbytes, WordBase fileHandle, UnsignedWord offset, int access, int flag);
     Pointer mapFile(PointerBase start, UnsignedWord nbytes, WordBase fileHandle, UnsignedWord offset, int access, NmtVirtualMemoryData nmtData);
 
 
@@ -148,6 +150,7 @@ public interface VirtualMemoryProvider {
      *         case of an error, such as inadequate physical memory.
      */
     Pointer commit(PointerBase start, UnsignedWord nbytes, int access);
+    Pointer commit(PointerBase start, UnsignedWord nbytes, int access, int flag);
     Pointer commit(PointerBase start, UnsignedWord nbytes, int access, NmtVirtualMemoryData nmtData);
 
     /**
@@ -179,6 +182,7 @@ public interface VirtualMemoryProvider {
      * @return 0 when successful, or a non-zero implementation-specific error code.
      */
     int uncommit(PointerBase start, UnsignedWord nbytes);
+    int uncommit(PointerBase start, UnsignedWord nbytes, int flag);
 
     /**
      * Free an entire reserved address range (which may be committed or partially committed). No
@@ -195,4 +199,5 @@ public interface VirtualMemoryProvider {
      * @return 0 when successful, or a non-zero implementation-specific error code.
      */
     int free(PointerBase start, UnsignedWord nbytes);
+    int free(PointerBase start, UnsignedWord nbytes, int flag);
 }

@@ -263,8 +263,8 @@ public final class CEntryPointSnippets extends SubstrateTemplates implements Sni
         }
 
         if (HasNmtSupport.get()) {
-            NativeMemoryTracking.recordCommit(nmtData.getCommitted(), NmtFlag.Default.ordinal());
-            NativeMemoryTracking.recordReserve(nmtData.getReserved(), NmtFlag.Default.ordinal());
+            NativeMemoryTracking.recordCommit(nmtData.getCommitted(), NmtFlag.mtJavaHeap.ordinal());
+            NativeMemoryTracking.recordReserve(nmtData.getReserved(), NmtFlag.mtJavaHeap.ordinal());
         }
 
         return createIsolate0(parsedArgs, isolate, vmThreadSize);

@@ -58,6 +58,7 @@ import com.oracle.svm.core.code.DynamicMethodAddressResolutionHeapSupport;
 import com.oracle.svm.core.config.ConfigurationValues;
 import com.oracle.svm.core.headers.LibC;
 import com.oracle.svm.core.heap.Heap;
+import com.oracle.svm.core.nmt.NmtFlag;
 import com.oracle.svm.core.nmt.NmtVirtualMemoryData;
 import com.oracle.svm.core.os.AbstractImageHeapProvider;
 import com.oracle.svm.core.os.CopyingImageHeapProvider;
@@ -255,7 +256,7 @@ public class LinuxImageHeapProvider extends AbstractImageHeapProvider {
                 freeImageHeap(allocatedMemory);
                 return CEntryPointErrors.PROTECT_HEAP_FAILED;
             }
-            Pointer committedRelocsBegin = VirtualMemoryProvider.get().commit(relocsBegin, relocsSize, Access.READ | Access.WRITE);
+            Pointer committedRelocsBegin = VirtualMemoryProvider.get().commit(relocsBegin, relocsSize, Access.READ | Access.WRITE, nmtData);
             if (committedRelocsBegin.isNull() || committedRelocsBegin != relocsBegin) {
                 freeImageHeap(allocatedMemory);
                 return CEntryPointErrors.PROTECT_HEAP_FAILED;
@@ -369,7 +370,7 @@ public class LinuxImageHeapProvider extends AbstractImageHeapProvider {
                  */
                 assert Heap.getHeap().getImageHeapOffsetInAddressSpace() == 0;
                 UnsignedWord beforeRelocSize = IMAGE_HEAP_RELOCATABLE_BEGIN.get().subtract((Pointer) heapBase);
-                Pointer newHeapBase = VirtualMemoryProvider.get().commit(heapBase, beforeRelocSize, Access.READ);
+                Pointer newHeapBase = VirtualMemoryProvider.get().commit(heapBase, beforeRelocSize, Access.READ, NmtFlag.mtJavaHeap.ordinal());
 
                 if (newHeapBase.isNull() || newHeapBase.notEqual(heapBase)) {
                     return CEntryPointErrors.MAP_HEAP_FAILED;
@@ -377,7 +378,7 @@ public class LinuxImageHeapProvider extends AbstractImageHeapProvider {
 
                 Word relocEnd = IMAGE_HEAP_RELOCATABLE_END.get();
                 Word afterRelocSize = IMAGE_HEAP_END.get().subtract(relocEnd);
-                Pointer newRelocEnd = VirtualMemoryProvider.get().commit(relocEnd, afterRelocSize, Access.READ);
+                Pointer newRelocEnd = VirtualMemoryProvider.get().commit(relocEnd, afterRelocSize, Access.READ, NmtFlag.mtJavaHeap.ordinal());
 
                 if (newRelocEnd.isNull() || newRelocEnd.notEqual(relocEnd)) {
                     return CEntryPointErrors.MAP_HEAP_FAILED;
@@ -391,7 +392,7 @@ public class LinuxImageHeapProvider extends AbstractImageHeapProvider {
                     addressSpaceStart = addressSpaceStart.subtract(preHeapRequiredBytes);
                 }
 
-                if (VirtualMemoryProvider.get().free(addressSpaceStart, totalAddressSpaceSize) != 0) {
+                if (VirtualMemoryProvider.get().free(addressSpaceStart, totalAddressSpaceSize, NmtFlag.mtJavaHeap.ordinal()) != 0) {
                     return CEntryPointErrors.FREE_IMAGE_HEAP_FAILED;
                 }
             }

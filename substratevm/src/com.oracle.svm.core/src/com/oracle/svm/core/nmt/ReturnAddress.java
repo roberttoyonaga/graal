@@ -26,37 +26,17 @@
 
 package com.oracle.svm.core.nmt;
 
-import com.oracle.svm.core.SubstrateOptions;
-import com.oracle.svm.core.VMInspectionOptions;
-import org.graalvm.nativeimage.ImageSingletons;
+import org.graalvm.nativeimage.c.struct.RawField;
+import org.graalvm.nativeimage.c.struct.RawStructure;
 
-import com.oracle.svm.core.feature.AutomaticallyRegisteredFeature;
-import com.oracle.svm.core.feature.InternalFeature;
-import com.oracle.svm.core.jdk.RuntimeSupport;
+import org.graalvm.word.Pointer;
+import org.graalvm.word.PointerBase;
 
-@AutomaticallyRegisteredFeature
-public class NmtFeature implements InternalFeature {
-    @Override
-    public boolean isInConfiguration(IsInConfigurationAccess access) {
-        return isInConfiguration();
-    }
+@RawStructure
+public interface ReturnAddress extends PointerBase {
+    @RawField
+    Pointer get();
 
-    public static boolean isInConfiguration() {
-        return VMInspectionOptions.hasNmtSupport();
-    }
-
-    @Override
-    public void afterRegistration(AfterRegistrationAccess access) {
-        ImageSingletons.add(NativeMemoryTracking.class, new NativeMemoryTracking());
-    }
-
-    @Override
-    public void beforeAnalysis(BeforeAnalysisAccess access) {
-        RuntimeSupport runtime = RuntimeSupport.getRuntimeSupport();
-
-        runtime.addShutdownHook(NativeMemoryTracking.shutdownHook());
-        runtime.addStartupHook(NativeMemoryTracking.startupHook());
-    }
-
-
+    @RawField
+    void set(Pointer value);
 }

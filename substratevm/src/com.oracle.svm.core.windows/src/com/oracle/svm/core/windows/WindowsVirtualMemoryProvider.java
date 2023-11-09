@@ -129,9 +129,20 @@ public class WindowsVirtualMemoryProvider implements VirtualMemoryProvider {
     public Pointer reserve(UnsignedWord nbytes, UnsignedWord alignment, boolean executable) {
         return reserve(nbytes, alignment, executable, WordFactory.nullPointer());
     }
+
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public Pointer reserve(UnsignedWord nbytes, UnsignedWord alignment, boolean executable, NmtVirtualMemoryData nmtData) {
+        return reserve0(nbytes, alignment, executable, nmtData, -1);
+    }
+    @Override
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    public Pointer reserve(UnsignedWord nbytes, UnsignedWord alignment, boolean executable, int flag) {
+        return reserve0(nbytes, alignment, executable, WordFactory.nullPointer(),  flag);
+    }
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    private Pointer reserve0(UnsignedWord nbytes, UnsignedWord alignment, boolean executable, NmtVirtualMemoryData nmtData, int flag) {
         if (nbytes.equal(0)) {
             return WordFactory.nullPointer();
         }
@@ -167,7 +178,7 @@ public class WindowsVirtualMemoryProvider implements VirtualMemoryProvider {
             return WordFactory.nullPointer();
         }
         if (nmtData.isNull()) {
-            NativeMemoryTracking.recordReserve(nbytes.add(requiredAlignment), NmtFlag.Default.ordinal());
+            NativeMemoryTracking.recordReserve(nbytes.add(requiredAlignment), flag);
         } else {
             nmtData.setReserved(nmtData.getReserved().add(nbytes.add(requiredAlignment)));
         }
@@ -297,9 +308,21 @@ public class WindowsVirtualMemoryProvider implements VirtualMemoryProvider {
     public Pointer mapFile(PointerBase start, UnsignedWord nbytes, WordBase fileHandle, UnsignedWord offset, int access) {
         return mapFile(start, nbytes, fileHandle, offset, access, WordFactory.nullPointer());
     }
+
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public Pointer mapFile(PointerBase start, UnsignedWord nbytes, WordBase fileHandle, UnsignedWord offset, int access, NmtVirtualMemoryData nmtData) {
+        return mapFile0(start, nbytes, fileHandle, offset, access, nmtData, -1);
+    }
+
+    @Override
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    public Pointer mapFile(PointerBase start, UnsignedWord nbytes, WordBase fileHandle, UnsignedWord offset, int access, int flag) {
+        return mapFile0(start, nbytes, fileHandle, offset, access, WordFactory.nullPointer(), flag);
+    }
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    private Pointer mapFile0(PointerBase start, UnsignedWord nbytes, WordBase fileHandle, UnsignedWord offset, int access, NmtVirtualMemoryData nmtData, int flag) {
         if ((start.isNonNull() && !isAligned(start)) || nbytes.equal(0)) {
             return WordFactory.nullPointer();
         }
@@ -330,7 +353,7 @@ public class WindowsVirtualMemoryProvider implements VirtualMemoryProvider {
             replacePlaceholder(start, nbytes);
         }
         if (nmtData.isNull()) {
-            NativeMemoryTracking.recordCommit(nbytes, NmtFlag.Default.ordinal());
+            NativeMemoryTracking.recordCommit(nbytes, flag);
         } else {
             nmtData.setCommitted(nmtData.getCommitted().add(nbytes));
         }
@@ -375,15 +398,27 @@ public class WindowsVirtualMemoryProvider implements VirtualMemoryProvider {
     public Pointer commit(PointerBase start, UnsignedWord nbytes, int access) {
         return commit(start, nbytes, access, WordFactory.nullPointer());
     }
+
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-    public Pointer commit(PointerBase start, UnsignedWord nbytes, int access,  NmtVirtualMemoryData nmtData) {
+    public Pointer commit(PointerBase start, UnsignedWord nbytes, int access, NmtVirtualMemoryData nmtData) {
+        return commit0(start, nbytes, access, nmtData, -1);
+    }
+
+    @Override
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    public Pointer commit(PointerBase start, UnsignedWord nbytes, int access, int flag) {
+        return commit0(start, nbytes, access, WordFactory.nullPointer(), flag);
+    }
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    private Pointer commit0(PointerBase start, UnsignedWord nbytes, int access,  NmtVirtualMemoryData nmtData, int flag) {
         if ((start.isNonNull() && !isAligned(start)) || nbytes.equal(0)) {
             return WordFactory.nullPointer();
         }
 
         if (nmtData.isNull()) {
-            NativeMemoryTracking.recordCommit(nbytes, NmtFlag.Default.ordinal());
+            NativeMemoryTracking.recordCommit(nbytes, flag);
         } else {
             nmtData.setCommitted(nmtData.getCommitted().add(nbytes));
         }
@@ -410,17 +445,31 @@ public class WindowsVirtualMemoryProvider implements VirtualMemoryProvider {
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public int uncommit(PointerBase start, UnsignedWord nbytes) {
+        return uncommit(start, nbytes, NmtFlag.mtNone.ordinal());
+    }
+
+    @Override
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    public int uncommit(PointerBase start, UnsignedWord nbytes,  int flag) {
         if (start.isNull() || !isAligned(start) || nbytes.equal(0)) {
             return -1;
         }
 
         int result = MemoryAPI.VirtualFree(start, nbytes, MemoryAPI.MEM_DECOMMIT());
-        return (result != 0) ? 0 : -1;
+        if (result != 0) {
+            NativeMemoryTracking.recordUncommit(nbytes, flag);
+            return 0;
+        }
+        return -1;
     }
-
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public int free(PointerBase start, UnsignedWord nbytes) {
+        return free(start, nbytes, NmtFlag.mtNone.ordinal());
+    }
+    @Override
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    public int free(PointerBase start, UnsignedWord nbytes, int flag) {
         if (start.isNull() || !isAligned(start) || nbytes.equal(0)) {
             return -1;
         }
@@ -441,6 +490,7 @@ public class WindowsVirtualMemoryProvider implements VirtualMemoryProvider {
             }
             end = ((Pointer) memoryInfo.AllocationBase()).subtract(1);
         }
+        NativeMemoryTracking.recordFree(nbytes, flag);
         return 0;
     }
 

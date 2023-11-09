@@ -44,6 +44,7 @@ import com.oracle.svm.core.c.function.CEntryPointErrors;
 import com.oracle.svm.core.code.RuntimeCodeCache;
 import com.oracle.svm.core.config.ConfigurationValues;
 import com.oracle.svm.core.heap.Heap;
+import com.oracle.svm.core.nmt.NmtFlag;
 import com.oracle.svm.core.util.UnsignedUtils;
 import com.oracle.svm.core.util.VMError;
 
@@ -106,24 +107,24 @@ public abstract class AbstractCommittedMemoryProvider implements CommittedMemory
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public Pointer allocateAlignedChunk(UnsignedWord nbytes, UnsignedWord alignment) {
-        return allocate(nbytes, alignment, false);
+        return allocate(nbytes, alignment, false, NmtFlag.mtJavaHeap);
     }
 
     @Override
     public Pointer allocateUnalignedChunk(UnsignedWord nbytes) {
-        return allocate(nbytes, getAlignmentForUnalignedChunks(), false);
+        return allocate(nbytes, getAlignmentForUnalignedChunks(), false,  NmtFlag.mtJavaHeap);
     }
 
     @Override
     public Pointer allocateExecutableMemory(UnsignedWord nbytes, UnsignedWord alignment) {
-        return allocate(nbytes, alignment, true);
+        return allocate(nbytes, alignment, true,  NmtFlag.mtCode);
     }
 
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-    private Pointer allocate(UnsignedWord size, UnsignedWord alignment, boolean executable) {
+    private Pointer allocate(UnsignedWord size, UnsignedWord alignment, boolean executable, NmtFlag flag) {
         Pointer reserved = WordFactory.nullPointer();
         if (!UnsignedUtils.isAMultiple(getGranularity(), alignment)) {
-            reserved = VirtualMemoryProvider.get().reserve(size, alignment, executable);
+            reserved = VirtualMemoryProvider.get().reserve(size, alignment, executable, flag.ordinal());
             if (reserved.isNull()) {
                 return nullPointer();
             }
@@ -132,10 +133,10 @@ public abstract class AbstractCommittedMemoryProvider implements CommittedMemory
         if (executable) {
             access |= VirtualMemoryProvider.Access.FUTURE_EXECUTE;
         }
-        Pointer committed = VirtualMemoryProvider.get().commit(reserved, size, access);
+        Pointer committed = VirtualMemoryProvider.get().commit(reserved, size, access, flag.ordinal());
         if (committed.isNull()) {
             if (reserved.isNonNull()) {
-                VirtualMemoryProvider.get().free(reserved, size);
+                VirtualMemoryProvider.get().free(reserved, size, flag.ordinal());
             }
             return nullPointer();
         }
@@ -152,24 +153,24 @@ public abstract class AbstractCommittedMemoryProvider implements CommittedMemory
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public void freeAlignedChunk(PointerBase start, UnsignedWord nbytes, UnsignedWord alignment) {
-        free(start, nbytes);
+        free(start, nbytes, NmtFlag.mtJavaHeap);
     }
 
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public void freeUnalignedChunk(PointerBase start, UnsignedWord nbytes) {
-        free(start, nbytes);
+        free(start, nbytes, NmtFlag.mtJavaHeap);
     }
 
     @Override
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public void freeExecutableMemory(PointerBase start, UnsignedWord nbytes, UnsignedWord alignment) {
-        free(start, nbytes);
+        free(start, nbytes, NmtFlag.mtCode);
     }
 
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-    private void free(PointerBase start, UnsignedWord nbytes) {
-        if (VirtualMemoryProvider.get().free(start, nbytes) == 0) {
+    private void free(PointerBase start, UnsignedWord nbytes, NmtFlag flag) {
+        if (VirtualMemoryProvider.get().free(start, nbytes, flag.ordinal()) == 0) {
             tracker.untrack(nbytes);
         }
     }

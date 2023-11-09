@@ -51,17 +51,23 @@ class VirtualMemoryInfo { // TODO track peak
     void recordCommitted(UnsignedWord size) { // *** hotspot doesnt adjust reserved when mem is
         // committed. The same block is counted as both
         // reserved and committed.
-        committedSize.addAndGet(size.rawValue());
+        long lastCommitted = committedSize.addAndGet(size.rawValue());
+// com.oracle.svm.core.util.VMError.guarantee(lastCommitted<=reservedSize.get());// TODO this is not
+// atomic enough. remove later
     }
 
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     void recordUncommit(UnsignedWord size) {
-        committedSize.addAndGet(-size.rawValue());
+        long lastSize = committedSize.addAndGet(-size.rawValue());
+        com.oracle.svm.core.util.VMError.guarantee(lastSize >= 0);
     }
 
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     void recordFree(UnsignedWord size) {
-        reservedSize.addAndGet(-size.rawValue());
+        long lastSize = reservedSize.addAndGet(-size.rawValue());
+        com.oracle.svm.core.util.VMError.guarantee(lastSize >= 0);
+// com.oracle.svm.core.util.VMError.guarantee(lastSize>=committedSize.get());// TODO this is not
+// atomic enough. remove later
     }
 
     long getReservedSize() {

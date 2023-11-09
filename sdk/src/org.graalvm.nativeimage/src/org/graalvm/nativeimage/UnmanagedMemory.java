@@ -148,8 +148,7 @@ public final class UnmanagedMemory {
     }
 
     /**
-     * Temporarily the same as {@link UnmanagedMemory#free(PointerBase)}. Will later be different
-     * because it will not attempt to perform any NMT operations. This is crucial for releasing
+     * Will not attempt to perform any NMT operations. This is crucial for releasing
      * memory allocated by C libraries which will not have NMT "malloc headers". If
      * {@link UnmanagedMemory#free(PointerBase)} is used instead, a segfault will occur.
      */

@@ -30,9 +30,7 @@ import com.oracle.svm.core.Uninterruptible;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
 
-class VirtualMemorySnapshot { // TODO this is the same as MallocMemorySnapshot. Maybe we can reduce
-    // code duplication. Lets do that last once we know ALL the methods
-    // these classes we'll need
+class VirtualMemorySnapshot {
     private VirtualMemoryInfo[] categories;
     private VirtualMemoryInfo total;
 
