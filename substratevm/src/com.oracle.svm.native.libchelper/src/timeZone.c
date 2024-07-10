@@ -24,7 +24,6 @@
  */
 
 
-#ifdef _WIN64
 /*
  * The following functions are an identical copy of the functions in file TimeZone_md.c found at
  * https://github.com/openjdk/jdk12/blob/94d9355a640e7a51ec86fafbaf7dc8fb13570e1c/src/java.base/windows/native/libjava/TimeZone_md.c
@@ -570,21 +569,3 @@ char *SVM_FindJavaTZmd(const char *tzmappings, int length)
     }
     return std_timezone;
 }
-#else
-extern char* findJavaTZ_md(const char *);
-
-char *SVM_FindJavaTZmd(const char *tzmappings, int length) {
-
-    /*
-     * For POSIX operating systems the original function
-     * does not need the JAVA_HOME nor tzmappings. Except
-     * for AIX (which is currently not supported in native image)
-     *
-     * We can safely call the original JDK function with java home set to
-     * NULL. Note the JNI wrapper of the below function, checks JAVA_HOME
-     * is not NULL and returns NULL if it is, stoppings us from directly
-     * calling this function from java without some type of substitution.
-     */
-    return findJavaTZ_md((void *) 0);
-}
-#endif // _WIN64

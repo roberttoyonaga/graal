@@ -25,37 +25,6 @@
 
 #include <jni.h>
 
-#if defined(__linux__)
-
-#include <sys/resource.h>
-
-JNIEXPORT jlong JNICALL Java_com_oracle_svm_hosted_ProgressReporterCHelper_getPeakRSS0(void *env, void * ignored) {
-    struct rusage rusage;
-    if (getrusage(RUSAGE_SELF, &rusage) == 0) {
-        return (size_t)rusage.ru_maxrss * 1024; /* (in kilobytes) */
-    } else {
-        return -1;
-    }
-}
-
-#elif defined(__APPLE__)
-
-#include <unistd.h>
-#include <sys/resource.h>
-#include <mach/mach.h>
-
-JNIEXPORT jlong JNICALL Java_com_oracle_svm_hosted_ProgressReporterCHelper_getPeakRSS0(void *env, void * ignored) {
-    struct mach_task_basic_info info;
-    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
-    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count) == KERN_SUCCESS) {
-        return (size_t)info.resident_size_max;
-    } else {
-        return -1;
-    }
-}
-
-#elif defined(_WIN64)
-
 #include <windows.h>
 #include <psapi.h>
 
@@ -68,4 +37,4 @@ JNIEXPORT jlong JNICALL Java_com_oracle_svm_hosted_ProgressReporterCHelper_getPe
     }
 }
 
-#endif
+

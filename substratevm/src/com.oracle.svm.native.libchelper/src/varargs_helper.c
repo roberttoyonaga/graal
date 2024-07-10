@@ -23,34 +23,3 @@
  * questions.
  */
 
-#ifndef _WIN64
-
-#include <stdio.h>
-#include <fcntl.h>
-
-/* On some platforms the varargs calling convention doesn't match regular calls
- * (e.g. darwin-aarch64 or linux-riscv). Instead of implementing varargs
- * support for @CFunction we add C helpers so that the C compiler resolves the
- * ABI specifics for us.
- */
-
-int fprintfSD(FILE *stream, const char *format, char *arg0, int arg1)
-{
-    return fprintf(stream, format, arg0, arg1);
-}
-
-/* open(2) has a variadic signature on POSIX:
- *
- *    int open(const char *path, int oflag, ...);
- */
-int openSII(const char *pathname, int flags, int mode)
-{
-    return open(pathname, flags, mode);
-}
-
-int openatISII(int dirfd, const char *pathname, int flags, int mode)
-{
-    return openat(dirfd, pathname, flags, mode);
-}
-
-#endif

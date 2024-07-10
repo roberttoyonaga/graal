@@ -25,20 +25,6 @@
 
 #include <jni.h>
 
-#if defined(__linux__) || defined(__APPLE__)
-
-#include <unistd.h>
-#include <stdio.h>
-#include <sys/ioctl.h>
-#include <sys/resource.h>
-
-JNIEXPORT jint JNICALL Java_com_oracle_svm_hosted_ProgressReporterCHelper_getTerminalWindowColumns0(void *env, void * ignored) {
-    struct winsize w;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-    return w.ws_col;
-}
-
-#elif defined(_WIN64)
 
 #include <windows.h>
 
@@ -48,4 +34,4 @@ JNIEXPORT jint JNICALL Java_com_oracle_svm_hosted_ProgressReporterCHelper_getTer
     return c.srWindow.Right - c.srWindow.Left + 1;
 }
 
-#endif
+

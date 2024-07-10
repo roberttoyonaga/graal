@@ -421,13 +421,8 @@
 #define NOT_BSD(code) code
 #endif
 
-#ifdef _WIN64
 #define WIN64_ONLY(code) code
 #define NOT_WIN64(code)
-#else
-#define WIN64_ONLY(code)
-#define NOT_WIN64(code) code
-#endif
 
 #if defined(ZERO)
 #define ZERO_ONLY(code) code

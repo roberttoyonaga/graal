@@ -24,11 +24,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
-#ifndef _WIN64
-#include <dlfcn.h>
-#else
 #include <windows.h>
-#endif
 #include "mydata.h"
 #include "libcinterfacetutorial.h"
 
@@ -117,14 +113,9 @@ int main(void) {
   dump(thread, &data);
 
   /* Call a Java function indirectly by looking it up dynamically. */
-#ifndef _WIN64
-#ifndef RTLD_DEFAULT
-#define RTLD_DEFAULT 0
-#endif
-  java_release_data = dlsym(RTLD_DEFAULT, "java_release_data");
-#else
+
   java_release_data = (java_release_data_fn_t) GetProcAddress(GetModuleHandleA("libcinterfacetutorial"), "java_release_data");
-#endif
+
   java_release_data(thread, &data);
 
   /* Enum demo */

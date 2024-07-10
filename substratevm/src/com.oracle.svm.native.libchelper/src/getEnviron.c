@@ -23,15 +23,6 @@
  * questions.
  */
 
-#ifndef _WIN64
-extern char **environ;
-
-char **getEnviron() {
-  return environ;
-}
-
-#else
-
 #include <windows.h>
 #include <stdio.h>
 
@@ -97,6 +88,5 @@ char **getEnviron() {
  */
 void __report_rangecheckfailure() {
 }
-#endif
 #endif
 
