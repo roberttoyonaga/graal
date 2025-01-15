@@ -692,7 +692,7 @@ public class SVMHost extends HostVM {
              * To avoid keeping the whole Graal graphs alive in production use cases, we extract the
              * necessary bits of information and store them in secondary storage maps.
              */
-            if (InliningUtilities.isTrivialMethod(graph)) {
+            if (InliningUtilities.isTrivialMethod(graph, null)) {
                 analysisTrivialMethods.put(method, true);
             }
 

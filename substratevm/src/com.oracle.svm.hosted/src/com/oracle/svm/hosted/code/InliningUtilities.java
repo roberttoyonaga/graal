@@ -24,6 +24,8 @@
  */
 package com.oracle.svm.hosted.code;
 
+import com.oracle.svm.hosted.code.CompileQueue.CompileReason;
+import com.oracle.svm.hosted.code.CompileQueue.DirectCallReason;
 import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.nodes.FrameState;
 import jdk.graal.compiler.nodes.FullInfopointNode;
@@ -39,7 +41,7 @@ import com.oracle.svm.core.SubstrateOptions;
 
 public class InliningUtilities {
 
-    public static boolean isTrivialMethod(StructuredGraph graph) {
+    public static boolean isTrivialMethod(StructuredGraph graph, CompileReason reason) {
         int numInvokes = 0;
         int numOthers = 0;
         for (Node n : graph.getNodes()) {
@@ -52,7 +54,7 @@ public class InliningUtilities {
                 numOthers++;
             }
 
-            if (!shouldBeTrivial(numInvokes, numOthers, graph)) {
+            if (!shouldBeTrivial(numInvokes, numOthers, graph, reason)) {
                 return false;
             }
         }
@@ -60,14 +62,90 @@ public class InliningUtilities {
         return true;
     }
 
-    private static boolean shouldBeTrivial(int numInvokes, int numOthers, StructuredGraph graph) {
+    private static boolean shouldBeTrivial(int numInvokes, int numOthers, StructuredGraph graph, CompileReason reason) {
+        final int maxNodesInTrivialLeafMethod = SubstrateOptions.MaxNodesInTrivialLeafMethod.getValue(graph.getOptions()).intValue();
+        final int maxInvokesInTrivialMethod = SubstrateOptions.MaxInvokesInTrivialMethod.getValue(graph.getOptions()).intValue();
+        final int maxNodesInTrivialMethod = SubstrateOptions.MaxNodesInTrivialMethod.getValue(graph.getOptions()).intValue();
+        final String methodId = graph.method().format("%h.%n(%p)");
         if (numInvokes == 0) {
             // This is a leaf method => we can be generous.
-            return numOthers <= SubstrateOptions.MaxNodesInTrivialLeafMethod.getValue(graph.getOptions());
-        } else if (numInvokes <= SubstrateOptions.MaxInvokesInTrivialMethod.getValue(graph.getOptions())) {
-            return numOthers <= SubstrateOptions.MaxNodesInTrivialMethod.getValue(graph.getOptions());
+            final boolean isTrivial = numOthers <= maxNodesInTrivialLeafMethod;
+            if (isDebug(methodId, reason))
+            {
+                System.out.printf(
+                        "[InliningUtilities.shouldBeTrivial][%s->%s] is leaf method, trivial check: number of non-invoke nodes %d <= %d? %b%n"
+                        , reason == null ? "()" : reason.toString()
+                        , methodId
+                        , numOthers
+                        , maxNodesInTrivialLeafMethod
+                        , isTrivial
+                );
+            }
+            return isTrivial;
         } else {
-            return false;
+            if (numInvokes <= maxInvokesInTrivialMethod) {
+                final boolean isTrivial = numOthers <= maxNodesInTrivialMethod;
+                if (isDebug(methodId, reason))
+                {
+                    System.out.printf(
+                            "[InliningUtilities.shouldBeTrivial][%s->%s] is not leaf method && numInvokes(%d) <= MaxInvokesInTrivialMethod(%d) && numOthers(%d) <= MaxNodesInTrivialMethod(%d)? %b%n"
+                            , reason == null ? "()" : reason.toString()
+                            , methodId
+                            , numInvokes
+                            , maxInvokesInTrivialMethod
+                            , numOthers
+                            , maxNodesInTrivialMethod
+                            , isTrivial
+                    );
+                }
+                return isTrivial;
+            } else {
+                if (isDebug(methodId, reason))
+                {
+                    System.out.printf(
+                            "[InliningUtilities.shouldBeTrivial][%s->%s] is not leaf method and not inlined (num invokes %d, MaxInvokesInTrivialMethod(%d), num others %d, MaxNodesInTrivialMethod(%d)%n"
+                            , reason == null ? "()" : reason.toString()
+                            , methodId
+                            , numInvokes
+                            , maxInvokesInTrivialMethod
+                            , numOthers
+                            , maxNodesInTrivialMethod
+                    );
+                }
+                return false;
+            }
         }
+    }
+    public static boolean isDebug(String methodId, CompileReason reason) {
+        if (reason != null) {
+            final String callerMethodId = reason.toString().replace("Direct call from char ", "");
+            return isCallerMethod(callerMethodId) && isTargetMethod(methodId);
+        }
+        return isTargetMethod(methodId);
+    }
+
+    public static boolean isCallerMethod(String caller) {
+        return
+//                "String.charAt(int)".equals(caller)
+//                || "StringLatin1.charAt(byte[], int)".equals(caller)
+//                || "StringUTF16.charAt(byte[], int)".equals(caller)
+                "Benchmarks.headersMultiMapAddMonomorphic1()".equals(caller);
+//                || "Benchmarks.monomorphic9()".equals(caller);
+
+    }
+
+    private static boolean isTargetMethod(String methodId){
+        return
+                //"String.isLatin1()".equals(methodId)
+//                || "StringLatin1.charAt(byte[], int)".equals(methodId)
+//                || "String.checkIndex(int, int)".equals(methodId)
+//                || "StringUTF16.charAt(byte[], int)".equals(methodId)
+//                || "StringUTF16.checkIndex(int, byte[])".equals(methodId)
+//                methodId.contains("Benchmarks$Helper8.add42(String)")
+//                || "Benchmarks.monomorphic9()".equals(methodId)
+                "HeadersMultiMap.add(CharSequence, CharSequence)".equals(methodId)
+                || "HeadersMultiMap.add0(int, int, CharSequence, CharSequence)".equals(methodId);
+
+
     }
 }

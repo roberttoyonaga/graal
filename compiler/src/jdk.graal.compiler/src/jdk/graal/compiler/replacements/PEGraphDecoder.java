@@ -1309,6 +1309,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
 
     @Override
     protected void finishInlining(MethodScope is) {
+        System.out.println("--- --- --- PEGraphDecoder.finishInlining ");
         PEMethodScope inlineScope = (PEMethodScope) is;
         ResolvedJavaMethod inlineMethod = inlineScope.method;
         PEMethodScope methodScope = inlineScope.caller;
@@ -1432,6 +1433,16 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
 
         for (InlineInvokePlugin plugin : inlineInvokePlugins) {
             plugin.notifyAfterInline(inlineMethod);
+        }
+
+        final String methodScopeId = methodScope.method.format("%H.%n(%p)");
+        if ("io.vertx.core.http.impl.headers.HeadersMultiMap.add(CharSequence, CharSequence)".equals(methodScopeId))
+        {
+            System.out.printf(
+                    "[PEGraphDecoder.finishInlining] [%s] inline call target %s%n"
+                    , methodScopeId
+                    , invokeData.callTarget.targetMethod().format("%H.%n(%p)")
+            );
         }
 
         if (methodScope.inliningLog != null) {
