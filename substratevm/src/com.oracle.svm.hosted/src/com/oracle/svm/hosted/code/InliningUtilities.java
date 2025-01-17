@@ -126,25 +126,14 @@ public class InliningUtilities {
 
     public static boolean isCallerMethod(String caller) {
         return
-//                "String.charAt(int)".equals(caller)
-//                || "StringLatin1.charAt(byte[], int)".equals(caller)
-//                || "StringUTF16.charAt(byte[], int)".equals(caller)
-                "Benchmarks.headersMultiMapAddMonomorphic1()".equals(caller);
-//                || "Benchmarks.monomorphic9()".equals(caller);
+                caller.contains("IBAHelper");
 
     }
 
     private static boolean isTargetMethod(String methodId){
         return
-                //"String.isLatin1()".equals(methodId)
-//                || "StringLatin1.charAt(byte[], int)".equals(methodId)
-//                || "String.checkIndex(int, int)".equals(methodId)
-//                || "StringUTF16.charAt(byte[], int)".equals(methodId)
-//                || "StringUTF16.checkIndex(int, byte[])".equals(methodId)
-//                methodId.contains("Benchmarks$Helper8.add42(String)")
-//                || "Benchmarks.monomorphic9()".equals(methodId)
-                "HeadersMultiMap.add(CharSequence, CharSequence)".equals(methodId)
-                || "HeadersMultiMap.add0(int, int, CharSequence, CharSequence)".equals(methodId);
+//                methodId.contains("IBAHelper") ||
+                methodId.contains("f8_inlining_phase");
 
 
     }

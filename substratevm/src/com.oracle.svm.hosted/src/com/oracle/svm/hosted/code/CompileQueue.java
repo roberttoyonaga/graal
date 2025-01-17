@@ -868,14 +868,6 @@ public class CompileQueue {
 
     private boolean makeInlineDecision(HostedMethod method, HostedMethod callee) {
         final String methodId = method.format("%h.%n(%p)");
-        if (InliningUtilities.isCallerMethod(methodId))
-        {
-            System.out.printf(
-                    "[CompileQueue.makeInlineDecision][%s->%s] make inline decision%n"
-                    , methodId
-                    , callee.format("%H.%n(%p)")
-            );
-        }
 
         if (!SubstrateOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
             /*

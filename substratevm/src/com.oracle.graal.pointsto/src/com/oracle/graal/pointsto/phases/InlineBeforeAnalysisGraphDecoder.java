@@ -238,7 +238,12 @@ public class InlineBeforeAnalysisGraphDecoder extends PEGraphDecoder {
             if (graph.getDebug().isLogEnabled()) {
                 graph.getDebug().logv("  ".repeat(methodScope.inliningDepth) + "  node " + node + ": " + methodScope.policyScope);
             }
+            InvokeData invokeData = methodScope.invokeData;
+            String s = invokeData.callTarget.targetMethod().format("%H.%n(%p)");
             if (!methodScope.policyScope.processNode(bb.getMetaAccess(), (AnalysisMethod) methodScope.method, node)) {
+                if (s.contains(TEST_NAME)) {
+                    System.out.println("!!! Aborting inlining in InlineBeforeAnalysisGraphDecoder.abortInlining: " + s);
+                }
                 abortInlining(methodScope);
             }
         }
@@ -316,8 +321,11 @@ public class InlineBeforeAnalysisGraphDecoder extends PEGraphDecoder {
         InlineBeforeAnalysisMethodScope callerScope = cast(inlineScope.caller);
         LoopScope callerLoopScope = inlineScope.callerLoopScope;
         InvokeData invokeData = inlineScope.invokeData;
-
+        String s = invokeData.callTarget.targetMethod().format("%H.%n(%p)");
         if (inlineScope.inliningAborted) {
+            if (s.contains(TEST_NAME)) {
+                System.out.println("### Inining Aborted in InlineBeforeAnalysisGraphDecoder.finishInlining: " + s);
+            }
             if (graph.getDebug().isLogEnabled()) {
                 graph.getDebug().logv("  ".repeat(callerScope.inliningDepth) + "  aborted " + invokeData.callTarget.targetMethod().format("%H.%n(%p)") + ": " + inlineScope.policyScope);
             }
@@ -346,6 +354,9 @@ public class InlineBeforeAnalysisGraphDecoder extends PEGraphDecoder {
             graph.getDebug().logv("  ".repeat(callerScope.inliningDepth) + "  committed " + invokeData.callTarget.targetMethod().format("%H.%n(%p)") + ": " + inlineScope.policyScope);
         }
         if (callerScope.policyScope != null) {
+            if (s.contains(TEST_NAME)) {
+                System.out.println("--- Committing callee scope in InlineBeforeAnalysisPolicyUtils.commitCalleeScope: " + s);
+            }
             callerScope.policyScope.commitCalleeScope(inlineScope.policyScope);
         }
 

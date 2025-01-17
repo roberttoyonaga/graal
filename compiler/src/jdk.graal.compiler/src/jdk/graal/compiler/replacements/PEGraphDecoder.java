@@ -164,6 +164,7 @@ import jdk.vm.ci.meta.ResolvedJavaType;
  */
 public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
 
+    protected static final String TEST_NAME = "IBAHelper"; //"f8_inlining_phase";
     private static final Object CACHED_NULL_VALUE = new Object();
 
     private static final TimerKey InvocationPluginTimer = DebugContext.timer("PartialEvaluation-InvocationPlugin").doc("Time spent in invocation plugins.");
@@ -1309,7 +1310,6 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
 
     @Override
     protected void finishInlining(MethodScope is) {
-        System.out.println("--- --- --- PEGraphDecoder.finishInlining ");
         PEMethodScope inlineScope = (PEMethodScope) is;
         ResolvedJavaMethod inlineMethod = inlineScope.method;
         PEMethodScope methodScope = inlineScope.caller;
@@ -1436,10 +1436,11 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         }
 
         final String methodScopeId = methodScope.method.format("%H.%n(%p)");
-        if ("io.vertx.core.http.impl.headers.HeadersMultiMap.add(CharSequence, CharSequence)".equals(methodScopeId))
+//        if ("io.vertx.core.http.impl.headers.HeadersMultiMap.add(CharSequence, CharSequence)".equals(methodScopeId))
+        if (methodScopeId.contains(TEST_NAME))
         {
             System.out.printf(
-                    "[PEGraphDecoder.finishInlining] [%s] inline call target %s%n"
+                    "$$$ Completed inlining in PEGraphDecoder.finishInlining. Caller: %s ||| Callee: %s%n"
                     , methodScopeId
                     , invokeData.callTarget.targetMethod().format("%H.%n(%p)")
             );
