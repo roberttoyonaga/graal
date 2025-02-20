@@ -1000,7 +1000,7 @@ public final class DynamicHub implements AnnotatedElement, java.lang.reflect.Typ
     }
 
     @Substitute
-    private DynamicHub getComponentType() {
+    public DynamicHub getComponentType() {
         return componentType;
     }
 
