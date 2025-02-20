@@ -38,19 +38,11 @@ public final class PosixPlatformTimeUtils extends PlatformTimeUtils {
     @Override
     @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-24+3/src/hotspot/os/posix/os_posix.cpp#L1409-L1415")
     @Uninterruptible(reason = "Must not migrate platform threads when executing on a virtual thread.")
-    public SecondsNanos javaTimeSystemUTC() {
+    public void javaTimeSystemUTC(SecondsNanos secondsNanos) {
         Time.timespec ts = StackValue.get(Time.timespec.class);
         int status = PosixUtils.clock_gettime(Time.CLOCK_REALTIME(), ts);
         PosixUtils.checkStatusIs0(status, "javaTimeSystemUTC: clock_gettime(CLOCK_REALTIME) failed.");
-        return allocateSecondsNanos0(ts.tv_sec(), ts.tv_nsec());
-    }
-
-    @Uninterruptible(reason = "Wrap the now safe call to interruptibly allocate a SecondsNanos object.", calleeMustBe = false)
-    private static SecondsNanos allocateSecondsNanos0(long seconds, long nanos) {
-        return allocateSecondsNanos(seconds, nanos);
-    }
-
-    private static SecondsNanos allocateSecondsNanos(long seconds, long nanos) {
-        return new SecondsNanos(seconds, nanos);
+        secondsNanos.setNanos(ts.tv_nsec());
+        secondsNanos.setSeconds(ts.tv_sec());
     }
 }

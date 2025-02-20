@@ -54,13 +54,14 @@ public final class WindowsPlatformTimeUtils extends PlatformTimeUtils {
 
     @Override
     @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-24+3/src/hotspot/os/windows/os_windows.cpp#L1198-L1205")
-    public SecondsNanos javaTimeSystemUTC() {
+    public void javaTimeSystemUTC(SecondsNanos secondsNanos) {
         FILETIME wt = StackValue.get(FILETIME.class);
         GetSystemTimeAsFileTime(wt);
         long ticks = windowsToTimeTicks(wt); // 10th of micros
         long secs = ticks / 10000000L; // 10000 * 1000
         long nanos = (ticks - (secs * 10000000L)) * 100L;
-        return new SecondsNanos(secs, nanos);
+        secondsNanos.setNanos(nanos);
+        secondsNanos.setSeconds(secs);
     }
 
 }
