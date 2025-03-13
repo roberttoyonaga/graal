@@ -733,13 +733,14 @@ public class CompileQueue {
         } while (inliningProgress);
     }
 
+    /** Must be created before the decoder. If not static then cannot see protected classes. If static, then cannot use CompileQueue vars*/
     class TrivialInliningPlugin implements InlineInvokePlugin {
 
         boolean inlinedDuringDecoding;
 
         @Override
         public InlineInfo shouldInlineInvoke(GraphBuilderContext b, ResolvedJavaMethod method, ValueNode[] args) {
-            if (makeInlineDecision((HostedMethod) b.getMethod(), (HostedMethod) method) && b.recursiveInliningDepth(method) == 0) {
+            if (customCriteria(((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope, (HostedMethod) method) ||makeInlineDecision((HostedMethod) b.getMethod(), (HostedMethod) method) && b.recursiveInliningDepth(method) == 0) {
                 return InlineInfo.createStandardInlineInfo(method);
             } else {
                 return InlineInfo.DO_NOT_INLINE_WITH_EXCEPTION;
@@ -749,6 +750,17 @@ public class CompileQueue {
         @Override
         public void notifyAfterInline(ResolvedJavaMethod methodToInline) {
             inlinedDuringDecoding = true;
+        }
+
+        private boolean customCriteria(PEGraphDecoder.PEMethodScope callerScope, HostedMethod calleeMethod) {
+            // Check to see if the current method is in the stack
+            if(calleeMethod.getName().equals(callerScope.callPath.peek())) {
+                // Shave the top entry off the stack so it can be passed along.
+                callerScope.callPath
+                return true;
+            }
+
+            return false;
         }
     }
 
@@ -803,20 +815,20 @@ public class CompileQueue {
          * because in that case we just over-estimate the inlining potential, i.e., we do the
          * decoding just to find out that nothing could be inlined.
          */
-        boolean inliningPotential = false;
-        for (var invokeInfo : method.compilationInfo.getCompilationGraph().getInvokeInfos()) {
-            if (invokeInfo.getInvokeKind().isDirect() && makeInlineDecision(method, invokeInfo.getTargetMethod())) {
-                inliningPotential = true;
-                break;
-            }
-        }
-        if (!inliningPotential) {
-            return;
-        }
+//        boolean inliningPotential = false;
+//        for (var invokeInfo : method.compilationInfo.getCompilationGraph().getInvokeInfos()) {
+//            if (invokeInfo.getInvokeKind().isDirect() && makeInlineDecision(method, invokeInfo.getTargetMethod())) {
+//                inliningPotential = true;
+//                break;
+//            }
+//        }
+//        if (!inliningPotential) {
+//            return;
+//        }
         var providers = runtimeConfig.lookupBackend(method).getProviders();
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
         try (var s = debug.scope("InlineTrivial", graph, method, this)) {
-            var inliningPlugin = new TrivialInliningPlugin();
+            var inliningPlugin = new InliningGraphDecoder.TrivialInliningPlugin();
             var decoder = new InliningGraphDecoder(graph, providers, inliningPlugin);
             new TrivialInlinePhase(decoder, method).apply(graph);
 

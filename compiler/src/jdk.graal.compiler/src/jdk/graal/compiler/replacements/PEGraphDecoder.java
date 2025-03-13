@@ -40,6 +40,7 @@ import java.util.Formatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.graalvm.collections.Pair;
@@ -183,7 +184,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         public static final OptionKey<Boolean> FailedLoopExplosionIsFatal = new OptionKey<>(false);
     }
 
-    protected class PEMethodScope extends MethodScope {
+    public class PEMethodScope extends MethodScope {
         /** The state of the caller method. Only non-null during method inlining. */
         public final PEMethodScope caller;
         public final ResolvedJavaMethod method;
@@ -197,6 +198,24 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         protected FrameState exceptionState;
         public ExceptionPlaceholderNode exceptionPlaceholderNode;
         protected NodeSourcePosition callerBytecodePosition;
+        public List<String> callPath;
+
+        public PEMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope, EncodedGraph encodedGraph, ResolvedJavaMethod method, InvokeData invokeData,
+                                int inliningDepth, ValueNode[] arguments, List<String> callPath) {
+            super(callerLoopScope, targetGraph, encodedGraph, loopExplosionKind(method, loopExplosionPlugin));
+
+            this.caller = caller;
+            this.method = method;
+            this.invokeData = invokeData;
+            this.inliningDepth = inliningDepth;
+            this.arguments = arguments;
+            this.callPath = callPath;
+
+            if (sourceLanguagePositionProvider != null) {
+                /* Marker value to compute actual position lazily when needed the first time. */
+                sourceLanguagePosition = UnresolvedSourceLanguagePosition.INSTANCE;
+            }
+        }
 
         protected PEMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope, EncodedGraph encodedGraph, ResolvedJavaMethod method, InvokeData invokeData,
                         int inliningDepth, ValueNode[] arguments) {
@@ -343,7 +362,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         }
     }
 
-    protected class PENonAppendGraphBuilderContext extends CoreProvidersDelegate implements GraphBuilderContext {
+    public class PENonAppendGraphBuilderContext extends CoreProvidersDelegate implements GraphBuilderContext {
         public final PEMethodScope methodScope;
         protected final Invoke invoke;
 
