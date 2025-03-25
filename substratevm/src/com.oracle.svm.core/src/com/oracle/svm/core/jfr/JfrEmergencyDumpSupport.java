@@ -13,6 +13,7 @@ public interface JfrEmergencyDumpSupport {
         return ImageSingletons.lookup(JfrEmergencyDumpSupport.class);
     }
 
+    void initialize();
     void setRepositoryLocation(String dirText);
     void setDumpPath(String dumpPathText);
     String getDumpPath();
