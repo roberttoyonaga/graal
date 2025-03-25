@@ -339,7 +339,7 @@ public class SubstrateJVM {
 
         // Cache all classes in preparation for TypeRepository TODO maybe there is a better way
         Heap.getHeap().visitLoadedClasses(clazz -> {});
-        JfrEmergencyDumpSupport.singleton().setDumpPath("");
+        JfrEmergencyDumpSupport.singleton().initialize();
 
         JfrChunkWriter chunkWriter = unlockedChunkWriter.lock();
         try {
