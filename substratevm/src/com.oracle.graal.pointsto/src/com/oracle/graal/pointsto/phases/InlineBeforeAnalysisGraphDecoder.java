@@ -78,7 +78,7 @@ public class InlineBeforeAnalysisGraphDecoder extends PEGraphDecoder {
          */
         private final EconomicSet<EncodedGraph> encodedGraphs;
 
-        InlineBeforeAnalysisMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope, EncodedGraph encodedGraph, AnalysisMethod method,
+        protected InlineBeforeAnalysisMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope, EncodedGraph encodedGraph, AnalysisMethod method,
                         InvokeData invokeData, int inliningDepth, ValueNode[] arguments) {
             super(targetGraph, caller, callerLoopScope, encodedGraph, method, invokeData, inliningDepth, arguments);
 

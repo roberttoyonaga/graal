@@ -1386,4 +1386,8 @@ public class SubstrateOptions {
             throw UserError.invalidOptionValue(key, key.getValue(), "Mapping the image heap with mremap() is only supported on Linux.");
         }
     });
+
+    @APIOption(name = "custom-inlining")//
+    @Option(help = "Custom inlining")//
+    public static final HostedOptionKey<Boolean> CustomForcedInlining = new HostedOptionKey<>(false);
 }

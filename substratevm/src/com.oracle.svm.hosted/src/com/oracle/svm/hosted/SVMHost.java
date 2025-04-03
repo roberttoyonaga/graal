@@ -125,7 +125,6 @@ import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.meta.RelocatableConstant;
 import com.oracle.svm.hosted.phases.AnalysisGraphBuilderPhase;
 import com.oracle.svm.hosted.phases.ImplicitAssertionsPhase;
-import com.oracle.svm.hosted.phases.InlineBeforeAnalysisGraphDecoderImpl;
 import com.oracle.svm.hosted.phases.InlineBeforeAnalysisPolicyImpl;
 import com.oracle.svm.hosted.phases.InlineBeforeAnalysisPolicyUtils;
 import com.oracle.svm.hosted.phases.OpenTypeWorldConvertCallTargetPhase;
@@ -824,7 +823,7 @@ public class SVMHost extends HostVM {
 
     @Override
     public InlineBeforeAnalysisGraphDecoder createInlineBeforeAnalysisGraphDecoder(BigBang bb, AnalysisMethod method, StructuredGraph resultGraph) {
-        return new InlineBeforeAnalysisGraphDecoderImpl(bb, inlineBeforeAnalysisPolicy(method.getMultiMethodKey()), resultGraph, bb.getProviders(method));
+        return IBADecoderProvider.singleton().createDecoder(bb, inlineBeforeAnalysisPolicy(method.getMultiMethodKey()), resultGraph, bb.getProviders(method));
     }
 
     public static class Options {
