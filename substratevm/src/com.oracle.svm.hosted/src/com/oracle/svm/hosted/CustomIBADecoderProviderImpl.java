@@ -50,18 +50,28 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, parseTargetPaths());
     }
 
+    // TODO move this javadoc to a help doc
+    /**
+     * Target forced inline paths should be formatted as json arrays. The order is caller -> callee.
+     * Paths can be specified in any order.
+     * Incorrect/invalid paths will not cause errors.
+     * Each method in a path must have the format "L[fully qualified classname];[method name]".
+     *
+     * See the exmaple below:
+     *
+     * <pre>{@code
+     * [
+     *   ["Ljava/lang/String;charAt", "Ljava/lang/StringLatin1;charAt", "Ljava/lang/StringLatin1;checkIndex"],
+     *   ["Ljava/lang/String;charAt", "Ljava/lang/StringUTF16;charAt", "Ljava/lang/StringUTF16;checkIndex"]
+     * ]
+     * }</pre>
+     *
+     * */
     private List<List<String>> parseTargetPaths() {
 
         try {
             JsonParser parser = new JsonParser(new FileReader(SubstrateOptions.CustomForcedInlining.getValue()));
             List<List<String>> paths = (List<List<String>>) parser.parse();
-//        System.out.println(" --------------  JSON parsed ");
-//        for(List<String> path : paths) {
-//            for(String method: path) {
-//                System.out.print(method+", ");
-//            }
-//            System.out.println();
-//        }
             return paths;
         } catch (IOException e) {
             throw new RuntimeException(e);
