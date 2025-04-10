@@ -50,7 +50,7 @@ final class DefaultIBADecoderFeature implements InternalFeature {
 
     @Override
     public boolean isInConfiguration(IsInConfigurationAccess access) {
-        return !SubstrateOptions.CustomForcedInlining.getValue();
+        return SubstrateOptions.CustomForcedInlining.getValue().isEmpty();
     }
 
     @Override

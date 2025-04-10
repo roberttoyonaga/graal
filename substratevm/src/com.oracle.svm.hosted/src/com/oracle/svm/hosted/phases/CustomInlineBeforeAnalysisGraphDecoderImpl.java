@@ -53,84 +53,9 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
 
     private final List<List<String>> inlinePaths;
 
-    public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers) {
+    public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, List<List<String>> paths) {
         super(bb, policy, graph, providers, null);
-        this.inlinePaths = new ArrayList<>();
-        headersMultiMapAddBenchmark();
-        charAtBenchmark();
-    }
-
-    private void charAtBenchmark() {
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lorg/sample/Benchmarks;charAtLatin1");
-        this.inlinePaths.getLast().add("Ljava/lang/String;charAt");
-        this.inlinePaths.getLast().add("Ljava/lang/StringLatin1;charAt");
-        this.inlinePaths.getLast().add("Ljava/lang/StringLatin1;checkIndex");
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lorg/sample/Benchmarks;charAtUtf16");
-        this.inlinePaths.getLast().add("Ljava/lang/String;charAt");
-        this.inlinePaths.getLast().add("Ljava/lang/StringUTF16;charAt");
-        this.inlinePaths.getLast().add("Ljava/lang/StringUTF16;checkIndex");
-    }
-
-    private void headersMultiMapAddBenchmark() {
-        // TODO read from a xml file
-        // order matters. Root --> leaf
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lorg/sample/Benchmarks;headersMultiMapAdd");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/headers/HeadersMultiMap;add");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/headers/HeadersMultiMap;add0");
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Ljava/lang/String;charAt");
-        this.inlinePaths.getLast().add("Ljava/lang/StringLatin1;charAt");
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lio/netty/util/AsciiString;charAt");
-        this.inlinePaths.getLast().add("Lio/netty/util/AsciiString;byteAt");
-        this.inlinePaths.getLast().add("Lio/netty/util/internal/PlatformDependent;getByte");
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/HttpUtils;validateHeader");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/HttpUtils;validateHeaderName");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/HttpUtils;validateHeaderName");
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/HttpUtils;validateHeader");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/HttpUtils;validateHeaderName");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/HttpUtils;validateHeaderName0");
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lio/netty/util/AsciiString;hashCode");
-        this.inlinePaths.getLast().add("Lio/netty/util/internal/PlatformDependent;hashCodeAscii");
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/HttpUtils;validateHeader");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/HttpUtils;validateHeaderValue");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/HttpUtils;validateValueChar");
-    }
-
-    private void encoderHeaderAddBenchmark() {
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/headers/HeadersMultiMap;encode");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/headers/HeadersMultiMap;encoderHeader");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/headers/HeadersMultiMap;writeAscii");
-        this.inlinePaths.getLast().add("Lio/netty/buffer/AbstractByteBuf;setCharSequence");
-        this.inlinePaths.getLast().add("Lio/netty/buffer/AbstractByteBuf;setCharSequence0");
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/headers/HeadersMultiMap;encode");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/headers/HeadersMultiMap;encoderHeader");
-        this.inlinePaths.getLast().add("Lio/vertx/core/http/impl/headers/HeadersMultiMap;writeAscii");
-        this.inlinePaths.getLast().add("Lio/netty/buffer/ByteBufUtil;copy");
-
-        this.inlinePaths.add(new ArrayList<>());
-        this.inlinePaths.getLast().add("Lio/netty/buffer/ByteBufUtil;setShortBE");
-        this.inlinePaths.getLast().add("Lio/netty/buffer/AbstractByteBuf;setShort");
-        this.inlinePaths.getLast().add("Lio/netty/buffer/AbstractByteBuf;checkIndex");
-
+        this.inlinePaths = paths;
     }
 
     @Override
@@ -185,6 +110,8 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
                 return true;
             }
         }
+//        System.out.println("------------- no match " + calleeName);
+//        System.out.println("------------- caller name " + (callerScope!= null ? callerScope.method.getDeclaringClass().getName() + callerScope.method.getName(): "caller scope is null"));
         return false;
     }
 

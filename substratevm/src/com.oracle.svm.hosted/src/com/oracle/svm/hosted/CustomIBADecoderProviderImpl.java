@@ -37,11 +37,35 @@ import com.oracle.svm.hosted.src.com.oracle.svm.hosted.phases.CustomInlineBefore
 import jdk.graal.compiler.nodes.StructuredGraph;
 import org.graalvm.nativeimage.ImageSingletons;
 
+import jdk.graal.compiler.util.json.JsonParser;
+
+
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.List;
+
 public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
     @Override
     public InlineBeforeAnalysisGraphDecoder createDecoder(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers) {
-        // TODO Parse XML and pass the list of target call paths when constructing the decoder.
-        return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers);
+        return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, parseTargetPaths());
+    }
+
+    private List<List<String>> parseTargetPaths() {
+
+        try {
+            JsonParser parser = new JsonParser(new FileReader(SubstrateOptions.CustomForcedInlining.getValue()));
+            List<List<String>> paths = (List<List<String>>) parser.parse();
+//        System.out.println(" --------------  JSON parsed ");
+//        for(List<String> path : paths) {
+//            for(String method: path) {
+//                System.out.print(method+", ");
+//            }
+//            System.out.println();
+//        }
+            return paths;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 }
 
@@ -50,7 +74,8 @@ final class CustomIBADecoderFeature implements InternalFeature {
 
     @Override
     public boolean isInConfiguration(IsInConfigurationAccess access) {
-        return SubstrateOptions.CustomForcedInlining.getValue();
+        // TODO should probably check that the provided path is valid first.
+        return !SubstrateOptions.CustomForcedInlining.getValue().isEmpty();
     }
 
     @Override

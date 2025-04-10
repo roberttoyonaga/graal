@@ -1388,6 +1388,6 @@ public class SubstrateOptions {
     });
 
     @APIOption(name = "custom-inlining")//
-    @Option(help = "Custom inlining")//
-    public static final HostedOptionKey<Boolean> CustomForcedInlining = new HostedOptionKey<>(false);
+    @Option(help = "Path to custom inlining configuration file.")//
+    public static final HostedOptionKey<String> CustomForcedInlining = new HostedOptionKey<>("");
 }
