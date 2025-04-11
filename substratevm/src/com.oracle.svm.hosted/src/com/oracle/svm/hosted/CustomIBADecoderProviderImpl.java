@@ -44,10 +44,15 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.List;
 
+/** Provides a decoder that allows for forced inlining of specific target call paths. */
 public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
+    // Cached to avoid parsing JSON repeatedly
+    List<List<String>> targetPaths;
+
+    /** {@linkplain CustomIBADecoderProviderImpl#createDecoder } is called for each method found to be reachable. */
     @Override
     public InlineBeforeAnalysisGraphDecoder createDecoder(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers) {
-        return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, parseTargetPaths());
+        return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, getTargetPaths());
     }
 
     // TODO move this javadoc to a help doc
@@ -55,27 +60,33 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
      * Target forced inline paths should be formatted as json arrays. The order is caller -> callee.
      * Paths can be specified in any order.
      * Incorrect/invalid paths will not cause errors.
-     * Each method in a path must have the format "L[fully qualified classname];[method name]".
+     * Each method in a path must have the format "[fully qualified classname][method name](parameter1type...)".
+     * Ex.  Lio/vertx/core/http/impl/headers/HeadersMultiMap;add(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)
      *
-     * See the exmaple below:
+     * See the example below:
      *
      * <pre>{@code
      * [
-     *   ["Ljava/lang/String;charAt", "Ljava/lang/StringLatin1;charAt", "Ljava/lang/StringLatin1;checkIndex"],
-     *   ["Ljava/lang/String;charAt", "Ljava/lang/StringUTF16;charAt", "Ljava/lang/StringUTF16;checkIndex"]
+     *   ["Ljava/lang/String;charAt(I)", "Ljava/lang/StringLatin1;charAt([BI)"],
+     *   ["Lio/netty/util/AsciiString;hashCode(Ljava/lang/CharSequence;)", "Lio/netty/util/internal/PlatformDependent;hashCodeAscii(Ljava/lang/CharSequence;)"],
      * ]
      * }</pre>
      *
      * */
-    private List<List<String>> parseTargetPaths() {
-
-        try {
-            JsonParser parser = new JsonParser(new FileReader(SubstrateOptions.CustomForcedInlining.getValue()));
-            List<List<String>> paths = (List<List<String>>) parser.parse();
-            return paths;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+    private List<List<String>> getTargetPaths() {
+        if (targetPaths == null){
+            try {
+                JsonParser parser = new JsonParser(new FileReader(SubstrateOptions.CustomForcedInlining.getValue()));
+                targetPaths = (List<List<String>>) parser.parse();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            // Quick sanity checks
+            assert targetPaths != null;
+            assert targetPaths.size() > 0;
+            assert targetPaths.getFirst().size() > 0;
         }
+        return targetPaths;
     }
 }
 

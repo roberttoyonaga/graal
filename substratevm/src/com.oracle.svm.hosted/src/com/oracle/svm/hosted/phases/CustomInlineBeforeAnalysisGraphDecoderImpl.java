@@ -62,12 +62,11 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     protected void maybeAbortInlining(MethodScope ms, @SuppressWarnings("unused") LoopScope loopScope, Node node) {
         CustomInlineBeforeAnalysisMethodScope methodScope = cast(ms);
         if (methodScope.isOnInlinePath) {
-            // If The caller scope is on the inline path, do NOT abort.
+            // If the caller scope is on the inline path, never abort.
             // We are evaluating whether the caller should be inlined by checking its callees.
+            // Similar to the alwaysInlineInvoke check, we do not updat ethe accumulative counters.
             return;
         }
-        // *** if alwaysInlineInvoke(..) is true, then it doesnt count towards the accumulative
-        // counters. TODO Maybe we should override alwaysInlineInvoke??? seems like EE does that
         super.maybeAbortInlining(ms, loopScope, node);
     }
 
@@ -77,14 +76,13 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
 
     /** Is the next callee on the target callpath? */
     private boolean onInlinePath(ResolvedJavaMethod method, PEMethodScope caller, InvokeData invokeData) {
-        String calleeName = method.getDeclaringClass().getName() + method.getName();
-
+        String calleeSignature = getSignature(method);
         // First check if the next scope is the root method.
         // createMethodScope is called on on the root method of each DFS.
         if (caller == null) {
             for (List<String> path : inlinePaths) {
-                if (path.getFirst().equals(calleeName)) {
-                    System.out.println("++++++++++++ root: " + calleeName);
+                if (path.getFirst().equals(calleeSignature)) {
+                    System.out.println("++++++++++++ root: " + calleeSignature);
                     return true;
                 }
             }
@@ -99,24 +97,19 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
 
         List<String> actualPath = new ArrayList<>();
         while (callerScope != null) {
-            String callerName = callerScope.method.getDeclaringClass().getName() + callerScope.method.getName();
-            actualPath.addFirst(callerName);
+            actualPath.addFirst(getSignature(callerScope.method));
             callerScope = cast(callerScope.caller);
         }
 
         for (List<String> path : inlinePaths) {
-            if (comparePaths(path, actualPath, calleeName)) {
-                System.out.println("------------- " + calleeName);
+            if (comparePaths(path, actualPath, calleeSignature)) {
+                System.out.println("------------- " + calleeSignature);
                 return true;
             }
         }
-//        System.out.println("------------- no match " + calleeName);
-//        System.out.println("------------- caller name " + (callerScope!= null ? callerScope.method.getDeclaringClass().getName() + callerScope.method.getName(): "caller scope is null"));
         return false;
     }
 
-    // TODO What if method names match but signatures do not? ResolvedJavaMethod.getParameters()
-    // doesn't seem helpful...
     private static boolean comparePaths(List<String> expectedPath, List<String> actualPath, String name) {
         // Check whether the actual path aligns with the first N steps of the target path.
         int i = 0;
@@ -128,6 +121,21 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
         }
         // Check whether the next step also matches.
         return i < expectedPath.size() && expectedPath.get(i).equals(name);
+    }
+
+    /** Modified from {@linkplain jdk.vm.ci.meta.Signature#toMethodDescriptor()}.
+     * The format is: "[fully qualified classname][method name](parameter1type...)"
+     * Ex.  Lio/vertx/core/http/impl/headers/HeadersMultiMap;add(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)
+     * */
+    private static String getSignature(ResolvedJavaMethod method) {
+        StringBuilder sb = new StringBuilder(method.getDeclaringClass().getName());
+        sb.append(method.getName());
+        sb.append("(");
+        for (int i = 0; i < method.getSignature().getParameterCount(false); ++i) {
+            sb.append(method.getSignature().getParameterType(i, null).getName());
+        }
+        sb.append(')');
+        return sb.toString();
     }
 
     // Similar to InlineBeforeAnalysisGraphDecoder, we take advantage of a custom MethodScope to
