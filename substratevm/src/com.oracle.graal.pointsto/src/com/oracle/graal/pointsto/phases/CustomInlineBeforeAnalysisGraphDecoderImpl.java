@@ -24,7 +24,7 @@
  * questions.
  */
 
-package com.oracle.svm.hosted.src.com.oracle.svm.hosted.phases;
+package com.oracle.graal.pointsto.phases;
 
 import com.oracle.graal.pointsto.BigBang;
 import com.oracle.graal.pointsto.meta.HostedProviders;
@@ -54,8 +54,35 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     private final List<List<String>> inlinePaths;
 
     public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, List<List<String>> paths) {
-        super(bb, policy, graph, providers, null);
+        super(bb, policy, graph, providers, null, new jdk.graal.compiler.nodes.graphbuilderconf.InlineInvokePlugin[]{new CustomInlineBeforeAnalysisInlineInvokePlugin(policy)});
         this.inlinePaths = paths;
+    }
+
+    static final class CustomInlineBeforeAnalysisInlineInvokePlugin implements jdk.graal.compiler.nodes.graphbuilderconf.InlineInvokePlugin {
+
+        private final InlineBeforeAnalysisPolicy policy;
+
+        CustomInlineBeforeAnalysisInlineInvokePlugin(InlineBeforeAnalysisPolicy policy) {
+            this.policy = policy;
+        }
+
+        @Override
+        public InlineInfo shouldInlineInvoke(jdk.graal.compiler.nodes.graphbuilderconf.GraphBuilderContext b, ResolvedJavaMethod m, ValueNode[] args) {
+            com.oracle.graal.pointsto.meta.AnalysisMethod method = (com.oracle.graal.pointsto.meta.AnalysisMethod) m;
+
+            CustomInlineBeforeAnalysisMethodScope callerScope = cast(((PENonAppendGraphBuilderContext) b).methodScope);
+            if (callerScope.isOnInlinePath) {
+                System.out.println("shouldInlineInvoke: "+  method.getName());
+                return policy.createInvokeInfo(method);
+            }
+
+            InlineBeforeAnalysisPolicy.AbstractPolicyScope policyScope = cast(((PENonAppendGraphBuilderContext) b).methodScope).policyScope;
+            if (policy.shouldInlineInvoke(b, policyScope, method, args)) {
+                return policy.createInvokeInfo(method);
+            } else {
+                return InlineInfo.DO_NOT_INLINE_WITH_EXCEPTION;
+            }
+        }
     }
 
     @Override
@@ -75,10 +102,10 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     }
 
     /** Is the next callee on the target callpath? */
-    private boolean onInlinePath(ResolvedJavaMethod method, PEMethodScope caller, InvokeData invokeData) {
+    private boolean onInlinePath(ResolvedJavaMethod method, PEMethodScope caller) {
         String calleeSignature = getSignature(method);
         // First check if the next scope is the root method.
-        // createMethodScope is called on on the root method of each DFS.
+        // createMethodScope is called on the root method of each DFS.
         if (caller == null) {
             for (List<String> path : inlinePaths) {
                 if (path.getFirst().equals(calleeSignature)) {
@@ -144,7 +171,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     protected PEMethodScope createMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope,
                     jdk.graal.compiler.nodes.EncodedGraph encodedGraph, ResolvedJavaMethod method, InvokeData invokeData,
                     int inliningDepth, ValueNode[] arguments) {
-        boolean onPath = onInlinePath(method, caller, invokeData);
+        boolean onPath = onInlinePath(method, caller);
 
         CustomInlineBeforeAnalysisMethodScope scope = new CustomInlineBeforeAnalysisMethodScope(targetGraph, caller, callerLoopScope,
                         encodedGraph, (com.oracle.graal.pointsto.meta.AnalysisMethod) method, invokeData,

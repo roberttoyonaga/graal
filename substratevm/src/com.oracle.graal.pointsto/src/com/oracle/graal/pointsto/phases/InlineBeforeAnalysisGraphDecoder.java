@@ -149,6 +149,20 @@ public class InlineBeforeAnalysisGraphDecoder extends PEGraphDecoder {
         }
     }
 
+    public InlineBeforeAnalysisGraphDecoder(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, LoopExplosionPlugin loopExplosionPlugin, InlineInvokePlugin[] plugins) {
+        super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, loopExplosionPlugin,
+                        providers.getGraphBuilderPlugins().getInvocationPlugins(),
+                        plugins,
+                        null, policy.nodePlugins, null, null,
+                        new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), policy.needsExplicitExceptions(), false);
+        this.bb = bb;
+        this.policy = policy;
+
+        if (graph.getDebug().isLogEnabled()) {
+            graph.getDebug().logv("InlineBeforeAnalysis: decoding " + graph.method().format("%H.%n(%p)"));
+        }
+    }
+
     @Override
     protected InvocationPlugin getInvocationPlugin(ResolvedJavaMethod targetMethod) {
         if (policy.tryInvocationPlugins()) {
