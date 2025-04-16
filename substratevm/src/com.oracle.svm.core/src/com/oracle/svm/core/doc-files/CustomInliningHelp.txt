@@ -1,0 +1,23 @@
+Force inlining along specified target paths.
+
+Usage: --custom-inlining=path/to/your/config/file.json
+
+The forced inlining occurs before the Native Image analysis phase during the image build.
+
+Target paths are specified in a configuration JSON file.
+Target paths should be formatted as json arrays. The order is caller -> callee_1 -> callee_2
+Paths can be specified in any order within the configuration file.
+There is no limit on the number of target paths that may be specified.
+There is no limit on the length of specified target paths.
+Incorrect/invalid paths will not cause errors.
+
+Each method in a path must have the format: <fully qualified classname><method name><parameterType1parameterType2...>".
+Ex.  Lio/vertx/core/http/impl/headers/HeadersMultiMap;add(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)
+
+
+See the example below:
+
+[
+  ["Ljava/lang/String;charAt(I)", "Ljava/lang/StringLatin1;charAt([BI)"],
+  ["Lio/netty/util/AsciiString;hashCode(Ljava/lang/CharSequence;)", "Lio/netty/util/internal/PlatformDependent;hashCodeAscii(Ljava/lang/CharSequence;)"],
+]

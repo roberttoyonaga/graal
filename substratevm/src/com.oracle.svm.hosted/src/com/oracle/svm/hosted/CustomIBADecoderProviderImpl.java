@@ -58,24 +58,6 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, getTargetPaths());
     }
 
-    // TODO move this javadoc to a help doc
-    /**
-     * Target forced inline paths should be formatted as json arrays. The order is caller -> callee.
-     * Paths can be specified in any order.
-     * Incorrect/invalid paths will not cause errors.
-     * Each method in a path must have the format "[fully qualified classname][method name](parameter1type...)".
-     * Ex.  Lio/vertx/core/http/impl/headers/HeadersMultiMap;add(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)
-     *
-     * See the example below:
-     *
-     * <pre>{@code
-     * [
-     *   ["Ljava/lang/String;charAt(I)", "Ljava/lang/StringLatin1;charAt([BI)"],
-     *   ["Lio/netty/util/AsciiString;hashCode(Ljava/lang/CharSequence;)", "Lio/netty/util/internal/PlatformDependent;hashCodeAscii(Ljava/lang/CharSequence;)"],
-     * ]
-     * }</pre>
-     *
-     * */
     private List<List<String>> getTargetPaths() {
         if (targetPaths != null) {
             return targetPaths;
