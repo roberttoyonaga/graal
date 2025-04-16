@@ -44,13 +44,17 @@ import jdk.graal.compiler.util.json.JsonParser;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
 /** Provides a decoder that allows for forced inlining of specific target call paths. */
 public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
     // Cached to avoid parsing JSON repeatedly
-    List<List<String>> targetPaths;
+    List<TargetPath> targetPaths;
 
     /** {@linkplain CustomIBADecoderProviderImpl#createDecoder } is called for each method found to be reachable. */
     @Override
@@ -58,27 +62,60 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, getTargetPaths());
     }
 
-    private List<List<String>> getTargetPaths() {
+    private List<TargetPath> getTargetPaths() {
         if (targetPaths != null) {
             return targetPaths;
         }
+        targetPaths = new ArrayList<>();
 
         File configFile = new File(SubstrateOptions.CustomForcedInlining.getValue());
         if (configFile.exists()){
             try {
                 JsonParser parser = new JsonParser(new FileReader(configFile));
-                targetPaths = (List<List<String>>) parser.parse();
+                List<List<String>> pathList = (List<List<String>>) parser.parse();
+
                 // Quick sanity checks
-                assert targetPaths != null && targetPaths.size() > 0 && targetPaths.getFirst().size() > 1;
+                assert pathList != null && pathList.size() > 0 && pathList.getFirst().size() > 1;
+
+                for(List<String> path : pathList) {
+                    targetPaths.add(new TargetPath(path));
+                }
             } catch (IOException e) {
                 LogUtils.warning("Custom inlining configuration file could not be read. Proceeding without target paths.");
-                targetPaths = new ArrayList<>();
             }
         } else {
             LogUtils.warning("Custom inlining configuration file does not exist. Proceeding without target paths.");
-            targetPaths = new ArrayList<>();
         }
         return targetPaths;
+    }
+
+    public void printDiagnostics() {
+        StringBuilder sb = new StringBuilder("\n----------------------\n");
+        sb.append("Custom Inlining Report\n");
+        sb.append("----------------------\n");
+        sb.append("The following target paths were not found: \n\n");
+        int count = 0;
+        for (TargetPath targetPath : targetPaths) {
+            if (!targetPath.isFound()) {
+                sb.append("----------------------\n");
+                sb.append(targetPath).append("\n\n");
+                sb.append(">>> Divergence point: ").append(targetPath.getDivergencePoint()).append("\n\n");
+                count++;
+            }
+        }
+        sb.append(count).append(" paths not found\n");
+        sb.append(targetPaths.size()).append(" total paths\n");
+        LogUtils.info(sb.toString());
+
+        LocalDateTime myDateObj = LocalDateTime.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy_HH-mm-ss");
+        String formattedDate = myDateObj.format(formatter);
+
+        try {
+            Files.writeString(Paths.get("custom_inlining_report_"+ formattedDate +".txt"),sb.toString());
+        } catch (IOException e) {
+            LogUtils.warning("Could not write custom inlining report.");
+        }
     }
 }
 

@@ -34,6 +34,7 @@ import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.ValueNode;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
+import com.oracle.svm.hosted.TargetPath;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,9 +52,9 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
         }
     }
 
-    private final List<List<String>> inlinePaths;
+    private final List<TargetPath> inlinePaths;
 
-    public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, List<List<String>> paths) {
+    public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, List<TargetPath> paths) {
         super(bb, policy, graph, providers);
         this.inlinePaths = paths;
     }
@@ -76,17 +77,19 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
 
     /** Is the next callee on the target callpath? */
     private boolean onInlinePath(ResolvedJavaMethod method, PEMethodScope caller) {
-        String calleeSignature = getSignature(method);
+        boolean result = false;
+        String calleeId = getMethodId(method);
         // First check if the next scope is the root method.
         // createMethodScope is called on on the root method of each DFS.
         if (caller == null) {
-            for (List<String> path : inlinePaths) {
-                if (path.getFirst().equals(calleeSignature)) {
-                    System.out.println("++++++++++++ root: " + calleeSignature);
-                    return true;
+            for (TargetPath targetPath : inlinePaths) {
+                if (targetPath.getFirst().getMethodId().equals(calleeId)) {
+                    System.out.println("++++++++++++ root: " + calleeId);
+                    targetPath.getFirst().setFound();
+                    result = true; // Can't return immediately. May need to set found on multiple paths.
                 }
             }
-            return false;
+            return result;
         }
 
         // An optimization. If the caller is not on the path, then the callee also must not be.
@@ -97,37 +100,42 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
 
         List<String> actualPath = new ArrayList<>();
         while (callerScope != null) {
-            actualPath.addFirst(getSignature(callerScope.method));
+            actualPath.addFirst(getMethodId(callerScope.method));
+            assert callerScope.isOnInlinePath;
             callerScope = cast(callerScope.caller);
         }
 
-        for (List<String> path : inlinePaths) {
-            if (comparePaths(path, actualPath, calleeSignature)) {
-                System.out.println("------------- " + calleeSignature);
-                return true;
+        for (TargetPath expectedPath : inlinePaths) {
+            if (comparePaths(expectedPath, actualPath)) {
+                // Now check whether the next step also matches.
+                int nextIdx = actualPath.size();
+                if (nextIdx < expectedPath.size() && expectedPath.get(nextIdx).getMethodId().equals(calleeId)){
+                    expectedPath.get(nextIdx).setFound();
+                    System.out.println("------------- " + calleeId);
+                    result = true;
+                }
             }
         }
-        return false;
+        return result;
     }
 
-    private static boolean comparePaths(List<String> expectedPath, List<String> actualPath, String name) {
+    private static boolean comparePaths(TargetPath expectedPath, List<String> actualPath) {
         // Check whether the actual path aligns with the first N steps of the target path.
         int i = 0;
         while (i < actualPath.size()) {
-            if (!actualPath.get(i).equals(expectedPath.get(i))) {
+            if (!actualPath.get(i).equals(expectedPath.get(i).getMethodId())) {
                 return false;
             }
             i++;
         }
-        // Check whether the next step also matches.
-        return i < expectedPath.size() && expectedPath.get(i).equals(name);
+        return true;
     }
 
     /** Modified from {@linkplain jdk.vm.ci.meta.Signature#toMethodDescriptor()}.
      * The format is: "[fully qualified classname][method name](parameter1type...)"
      * Ex.  Lio/vertx/core/http/impl/headers/HeadersMultiMap;add(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)
      * */
-    private static String getSignature(ResolvedJavaMethod method) {
+    private static String getMethodId(ResolvedJavaMethod method) {
         StringBuilder sb = new StringBuilder(method.getDeclaringClass().getName());
         sb.append(method.getName());
         sb.append("(");

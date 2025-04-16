@@ -36,6 +36,7 @@ import org.graalvm.nativeimage.ImageSingletons;
 public interface IBADecoderProvider {
 
     InlineBeforeAnalysisGraphDecoder createDecoder(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers);
+    void printDiagnostics();
 
     static IBADecoderProvider singleton() {
         return ImageSingletons.lookup(IBADecoderProvider.class);

@@ -43,6 +43,11 @@ public class DefaultIBADecoderProviderImpl implements IBADecoderProvider {
         return new InlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers);
 
     }
+
+    @Override
+    public void printDiagnostics() {
+        // Nothing to do
+    }
 }
 
 @AutomaticallyRegisteredFeature
