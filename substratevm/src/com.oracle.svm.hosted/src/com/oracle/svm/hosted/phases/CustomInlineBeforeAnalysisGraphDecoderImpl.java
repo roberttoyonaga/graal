@@ -38,7 +38,7 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnalysisGraphDecoder {
+public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.hosted.phases.InlineBeforeAnalysisGraphDecoderImpl {
 
     public class CustomInlineBeforeAnalysisMethodScope extends InlineBeforeAnalysisGraphDecoder.InlineBeforeAnalysisMethodScope {
         boolean isOnInlinePath;
@@ -54,7 +54,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     private final List<List<String>> inlinePaths;
 
     public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, List<List<String>> paths) {
-        super(bb, policy, graph, providers, null);
+        super(bb, policy, graph, providers);
         this.inlinePaths = paths;
     }
 
@@ -75,7 +75,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     }
 
     /** Is the next callee on the target callpath? */
-    private boolean onInlinePath(ResolvedJavaMethod method, PEMethodScope caller, InvokeData invokeData) {
+    private boolean onInlinePath(ResolvedJavaMethod method, PEMethodScope caller) {
         String calleeSignature = getSignature(method);
         // First check if the next scope is the root method.
         // createMethodScope is called on on the root method of each DFS.
@@ -144,7 +144,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     protected PEMethodScope createMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope,
                     jdk.graal.compiler.nodes.EncodedGraph encodedGraph, ResolvedJavaMethod method, InvokeData invokeData,
                     int inliningDepth, ValueNode[] arguments) {
-        boolean onPath = onInlinePath(method, caller, invokeData);
+        boolean onPath = onInlinePath(method, caller);
 
         CustomInlineBeforeAnalysisMethodScope scope = new CustomInlineBeforeAnalysisMethodScope(targetGraph, caller, callerLoopScope,
                         encodedGraph, (com.oracle.graal.pointsto.meta.AnalysisMethod) method, invokeData,

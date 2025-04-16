@@ -34,14 +34,17 @@ import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.feature.AutomaticallyRegisteredFeature;
 import com.oracle.svm.core.feature.InternalFeature;
 import com.oracle.svm.hosted.src.com.oracle.svm.hosted.phases.CustomInlineBeforeAnalysisGraphDecoderImpl;
+import com.oracle.svm.util.LogUtils;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import org.graalvm.nativeimage.ImageSingletons;
 
 import jdk.graal.compiler.util.json.JsonParser;
 
 
+import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /** Provides a decoder that allows for forced inlining of specific target call paths. */
@@ -74,17 +77,24 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
      *
      * */
     private List<List<String>> getTargetPaths() {
-        if (targetPaths == null){
+        if (targetPaths != null) {
+            return targetPaths;
+        }
+
+        File configFile = new File(SubstrateOptions.CustomForcedInlining.getValue());
+        if (configFile.exists()){
             try {
-                JsonParser parser = new JsonParser(new FileReader(SubstrateOptions.CustomForcedInlining.getValue()));
+                JsonParser parser = new JsonParser(new FileReader(configFile));
                 targetPaths = (List<List<String>>) parser.parse();
+                // Quick sanity checks
+                assert targetPaths != null && targetPaths.size() > 0 && targetPaths.getFirst().size() > 1;
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                LogUtils.warning("Custom inlining configuration file could not be read. Proceeding without target paths.");
+                targetPaths = new ArrayList<>();
             }
-            // Quick sanity checks
-            assert targetPaths != null;
-            assert targetPaths.size() > 0;
-            assert targetPaths.getFirst().size() > 0;
+        } else {
+            LogUtils.warning("Custom inlining configuration file does not exist. Proceeding without target paths.");
+            targetPaths = new ArrayList<>();
         }
         return targetPaths;
     }
@@ -95,7 +105,6 @@ final class CustomIBADecoderFeature implements InternalFeature {
 
     @Override
     public boolean isInConfiguration(IsInConfigurationAccess access) {
-        // TODO should probably check that the provided path is valid first.
         return !SubstrateOptions.CustomForcedInlining.getValue().isEmpty();
     }
 
