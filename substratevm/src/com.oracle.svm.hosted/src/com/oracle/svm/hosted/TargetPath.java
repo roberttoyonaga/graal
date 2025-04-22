@@ -23,17 +23,19 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
 package com.oracle.svm.hosted;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/** This class is mainly necessary for gathering diagnostics.*/
+/** This class is mainly necessary for gathering diagnostics. */
 public class TargetPath {
     List<TargetMethod> path;
+
     public TargetPath(List<String> path) {
         this.path = new ArrayList<>();
-        for (String methodId : path){
+        for (String methodId : path) {
             this.path.add(new TargetMethod(methodId));
         }
     }
@@ -44,19 +46,19 @@ public class TargetPath {
     }
 
     public TargetMethod getDivergencePoint() {
-        for(TargetMethod targetMethod : path){
-            if (!targetMethod.isFound()){
+        for (TargetMethod targetMethod : path) {
+            if (!targetMethod.isFound()) {
                 return targetMethod;
             }
         }
         return null;
     }
 
-    public TargetMethod get(int i){
+    public TargetMethod get(int i) {
         return path.get(i);
     }
 
-    public TargetMethod getFirst(){
+    public TargetMethod getFirst() {
         return path.getFirst();
     }
 
@@ -66,9 +68,9 @@ public class TargetPath {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("[");
+        StringBuilder sb = new StringBuilder("[ ");
 
-        for (TargetMethod targetMethod: path) {
+        for (TargetMethod targetMethod : path) {
             sb.append(targetMethod).append(", ");
         }
         sb.append("]");
@@ -83,9 +85,11 @@ public class TargetPath {
             found = false;
             this.methodId = methodId;
         }
+
         public boolean isFound() {
             return found;
         }
+
         public void setFound() {
             found = true;
         }

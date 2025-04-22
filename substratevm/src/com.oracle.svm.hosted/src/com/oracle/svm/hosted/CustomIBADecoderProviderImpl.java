@@ -40,7 +40,6 @@ import org.graalvm.nativeimage.ImageSingletons;
 
 import jdk.graal.compiler.util.json.JsonParser;
 
-
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -53,10 +52,14 @@ import java.util.List;
 
 /** Provides a decoder that allows for forced inlining of specific target call paths. */
 public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
-    // Cached to avoid parsing JSON repeatedly
+    private static final String REPORT_PREFIX = "custom_inlining_report_";
+    private static final String REPORT_EXTENSION = ".txt";
     List<TargetPath> targetPaths;
 
-    /** {@linkplain CustomIBADecoderProviderImpl#createDecoder } is called for each method found to be reachable. */
+    /**
+     * {@linkplain CustomIBADecoderProviderImpl#createDecoder } is called for each method found to
+     * be reachable.
+     */
     @Override
     public InlineBeforeAnalysisGraphDecoder createDecoder(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers) {
         return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, getTargetPaths());
@@ -69,7 +72,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         targetPaths = new ArrayList<>();
 
         File configFile = new File(SubstrateOptions.CustomForcedInlining.getValue());
-        if (configFile.exists()){
+        if (configFile.exists()) {
             try {
                 JsonParser parser = new JsonParser(new FileReader(configFile));
                 List<List<String>> pathList = (List<List<String>>) parser.parse();
@@ -77,7 +80,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
                 // Quick sanity checks
                 assert pathList != null && pathList.size() > 0 && pathList.getFirst().size() > 1;
 
-                for(List<String> path : pathList) {
+                for (List<String> path : pathList) {
                     targetPaths.add(new TargetPath(path));
                 }
             } catch (IOException e) {
@@ -90,9 +93,10 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
     }
 
     public void printDiagnostics() {
-        StringBuilder sb = new StringBuilder("\n----------------------\n");
+        StringBuilder sb = new StringBuilder("\n\n----------------------\n");
         sb.append("Custom Inlining Report\n");
         sb.append("----------------------\n");
+        sb.append("Target path configuration file: " + SubstrateOptions.CustomForcedInlining.getValue() + "\n");
         sb.append("The following target paths were not found: \n\n");
         int count = 0;
         for (TargetPath targetPath : targetPaths) {
@@ -112,7 +116,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         String formattedDate = myDateObj.format(formatter);
 
         try {
-            Files.writeString(Paths.get("custom_inlining_report_"+ formattedDate +".txt"),sb.toString());
+            Files.writeString(Paths.get(REPORT_PREFIX + formattedDate + REPORT_EXTENSION), sb.toString());
         } catch (IOException e) {
             LogUtils.warning("Could not write custom inlining report.");
         }

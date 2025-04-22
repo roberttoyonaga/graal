@@ -80,13 +80,13 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
         boolean result = false;
         String calleeId = getMethodId(method);
         // First check if the next scope is the root method.
-        // createMethodScope is called on on the root method of each DFS.
+        // createMethodScope is called on the root method of each DFS.
         if (caller == null) {
             for (TargetPath targetPath : inlinePaths) {
                 if (targetPath.getFirst().getMethodId().equals(calleeId)) {
-                    System.out.println("++++++++++++ root: " + calleeId);
                     targetPath.getFirst().setFound();
-                    result = true; // Can't return immediately. May need to set found on multiple paths.
+                    // Can't return immediately. May need to set found on multiple paths.
+                    result = true;
                 }
             }
             return result;
@@ -109,9 +109,8 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
             if (comparePaths(expectedPath, actualPath)) {
                 // Now check whether the next step also matches.
                 int nextIdx = actualPath.size();
-                if (nextIdx < expectedPath.size() && expectedPath.get(nextIdx).getMethodId().equals(calleeId)){
+                if (nextIdx < expectedPath.size() && expectedPath.get(nextIdx).getMethodId().equals(calleeId)) {
                     expectedPath.get(nextIdx).setFound();
-                    System.out.println("------------- " + calleeId);
                     result = true;
                 }
             }
@@ -131,10 +130,11 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
         return true;
     }
 
-    /** Modified from {@linkplain jdk.vm.ci.meta.Signature#toMethodDescriptor()}.
-     * The format is: "[fully qualified classname][method name](parameter1type...)"
-     * Ex.  Lio/vertx/core/http/impl/headers/HeadersMultiMap;add(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)
-     * */
+    /**
+     * Modified from {@linkplain jdk.vm.ci.meta.Signature#toMethodDescriptor()}. The format is:
+     * "[fully qualified classname][method name](parameter1type...)" Ex.
+     * Lio/vertx/core/http/impl/headers/HeadersMultiMap;add(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)
+     */
     private static String getMethodId(ResolvedJavaMethod method) {
         StringBuilder sb = new StringBuilder(method.getDeclaringClass().getName());
         sb.append(method.getName());
@@ -152,11 +152,9 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
     protected PEMethodScope createMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope,
                     jdk.graal.compiler.nodes.EncodedGraph encodedGraph, ResolvedJavaMethod method, InvokeData invokeData,
                     int inliningDepth, ValueNode[] arguments) {
-        boolean onPath = onInlinePath(method, caller);
-
         CustomInlineBeforeAnalysisMethodScope scope = new CustomInlineBeforeAnalysisMethodScope(targetGraph, caller, callerLoopScope,
                         encodedGraph, (com.oracle.graal.pointsto.meta.AnalysisMethod) method, invokeData,
-                        inliningDepth, arguments, onPath);
+                        inliningDepth, arguments, onInlinePath(method, caller));
         return scope;
     }
 }

@@ -41,7 +41,6 @@ public class DefaultIBADecoderProviderImpl implements IBADecoderProvider {
     @Override
     public InlineBeforeAnalysisGraphDecoder createDecoder(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers) {
         return new InlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers);
-
     }
 
     @Override
