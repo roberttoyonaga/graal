@@ -24,7 +24,7 @@
  * questions.
  */
 
-package com.oracle.svm.hosted.src.com.oracle.svm.hosted.phases;
+package com.oracle.svm.hosted.phases;
 
 import com.oracle.graal.pointsto.BigBang;
 import com.oracle.graal.pointsto.meta.HostedProviders;
@@ -39,7 +39,7 @@ import com.oracle.svm.hosted.TargetPath;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.hosted.phases.InlineBeforeAnalysisGraphDecoderImpl {
+public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnalysisGraphDecoderImpl {
 
     public class CustomInlineBeforeAnalysisMethodScope extends InlineBeforeAnalysisGraphDecoder.InlineBeforeAnalysisMethodScope {
         boolean isOnInlinePath;
@@ -65,7 +65,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
         if (methodScope.isOnInlinePath) {
             // If the caller scope is on the inline path, never abort.
             // We are evaluating whether the caller should be inlined by checking its callees.
-            // Similar to the alwaysInlineInvoke check, we do not updat ethe accumulative counters.
+            // Similar to the alwaysInlineInvoke check, we do not update the accumulative counters.
             return;
         }
         super.maybeAbortInlining(ms, loopScope, node);
@@ -83,8 +83,8 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
         // createMethodScope is called on the root method of each DFS.
         if (caller == null) {
             for (TargetPath targetPath : inlinePaths) {
-                if (targetPath.getFirst().getMethodId().equals(calleeId)) {
-                    targetPath.getFirst().setFound();
+                if (targetPath.getMethodId(0).equals(calleeId)) {
+                    targetPath.setFound(0);
                     // Can't return immediately. May need to set found on multiple paths.
                     result = true;
                 }
@@ -109,8 +109,8 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
             if (comparePaths(expectedPath, actualPath)) {
                 // Now check whether the next step also matches.
                 int nextIdx = actualPath.size();
-                if (nextIdx < expectedPath.size() && expectedPath.get(nextIdx).getMethodId().equals(calleeId)) {
-                    expectedPath.get(nextIdx).setFound();
+                if (nextIdx < expectedPath.size() && expectedPath.getMethodId(nextIdx).equals(calleeId)) {
+                    expectedPath.setFound(nextIdx);
                     result = true;
                 }
             }
@@ -122,7 +122,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends com.oracle.svm.h
         // Check whether the actual path aligns with the first N steps of the target path.
         int i = 0;
         while (i < actualPath.size()) {
-            if (!actualPath.get(i).equals(expectedPath.get(i).getMethodId())) {
+            if (!actualPath.get(i).equals(expectedPath.getMethodId(i))) {
                 return false;
             }
             i++;

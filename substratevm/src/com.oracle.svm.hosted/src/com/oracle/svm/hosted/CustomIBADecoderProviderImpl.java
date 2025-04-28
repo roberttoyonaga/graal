@@ -33,7 +33,7 @@ import com.oracle.graal.pointsto.phases.InlineBeforeAnalysisPolicy;
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.feature.AutomaticallyRegisteredFeature;
 import com.oracle.svm.core.feature.InternalFeature;
-import com.oracle.svm.hosted.src.com.oracle.svm.hosted.phases.CustomInlineBeforeAnalysisGraphDecoderImpl;
+import com.oracle.svm.hosted.phases.CustomInlineBeforeAnalysisGraphDecoderImpl;
 import com.oracle.svm.util.LogUtils;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import org.graalvm.nativeimage.ImageSingletons;

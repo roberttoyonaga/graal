@@ -66,6 +66,13 @@ public class TargetPath {
         return path.size();
     }
 
+    public String getMethodId(int index) {
+        return path.get(index).getMethodId();
+    }
+    public void setFound(int index) {
+        path.get(index).setFound();
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("[ ");
