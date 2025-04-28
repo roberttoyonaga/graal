@@ -33,6 +33,7 @@ import com.oracle.graal.pointsto.phases.InlineBeforeAnalysisPolicy;
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.feature.AutomaticallyRegisteredFeature;
 import com.oracle.svm.core.feature.InternalFeature;
+import com.oracle.svm.core.util.UserError;
 import com.oracle.svm.hosted.phases.CustomInlineBeforeAnalysisGraphDecoderImpl;
 import com.oracle.svm.util.LogUtils;
 import jdk.graal.compiler.nodes.StructuredGraph;
@@ -55,6 +56,9 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
     private static final String REPORT_PREFIX = "custom_inlining_report_";
     private static final String REPORT_EXTENSION = ".txt";
     List<TargetPath> targetPaths;
+    String configFileString;
+    boolean strict;
+    boolean debug;
 
     /**
      * {@linkplain CustomIBADecoderProviderImpl#createDecoder } is called for each method found to
@@ -69,9 +73,14 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         if (targetPaths != null) {
             return targetPaths;
         }
-        targetPaths = new ArrayList<>();
 
-        File configFile = new File(SubstrateOptions.CustomForcedInlining.getValue());
+        targetPaths = new ArrayList<>();
+        if (!parseOptions()) {
+            LogUtils.warning("Parsing custom inlining options failed");
+            return targetPaths;
+        }
+
+        File configFile = new File(configFileString);
         if (configFile.exists()) {
             try {
                 JsonParser parser = new JsonParser(new FileReader(configFile));
@@ -87,16 +96,49 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
                 LogUtils.warning("Custom inlining configuration file could not be read. Proceeding without target paths.");
             }
         } else {
-            LogUtils.warning("Custom inlining configuration file does not exist. Proceeding without target paths.");
+            LogUtils.warning("Custom inlining configuration file does not exist: " + configFileString + " . Proceeding without target paths.");
         }
         return targetPaths;
     }
 
+    private boolean parseOptions() {
+        String unparsed = SubstrateOptions.CustomForcedInlining.getValue();
+        String[] split = unparsed.split(":");
+        for (String parameter : split) {
+            String[] parameterSplit = parameter.split("=");
+            if (parameterSplit.length < 2) {
+                LogUtils.warning("Invalid custom inlining parameter: " + parameter);
+                return false;
+            }
+            String key = parameterSplit[0];
+            String value = parameterSplit[1];
+            switch (key) {
+                case "config":
+                    configFileString = value;
+                    break;
+                case "debug":
+                    debug = Boolean.valueOf(value);
+                    break;
+                case "strict":
+                    strict = Boolean.valueOf(value);
+                    break;
+                default:
+                    //Ignore unrecognized parameters
+                    LogUtils.warning("Unrecognized custom inlining parameter: " + key);
+                    break;
+            }
+        }
+        return true;
+    }
+
     public void printDiagnostics() {
+        if (!debug && !strict){
+            return;
+        }
         StringBuilder sb = new StringBuilder("\n\n----------------------\n");
         sb.append("Custom Inlining Report\n");
         sb.append("----------------------\n");
-        sb.append("Target path configuration file: " + SubstrateOptions.CustomForcedInlining.getValue() + "\n");
+        sb.append("Target path configuration file: " + configFileString + "\n");
         sb.append("The following target paths were not found: \n\n");
         int count = 0;
         for (TargetPath targetPath : targetPaths) {
@@ -109,16 +151,27 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         }
         sb.append(count).append(" paths not found\n");
         sb.append(targetPaths.size()).append(" total paths\n");
-        LogUtils.info(sb.toString());
 
-        LocalDateTime myDateObj = LocalDateTime.now();
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy_HH-mm-ss");
-        String formattedDate = myDateObj.format(formatter);
+        // Only write to output if in debug mode.
+        if (debug) {
+            LogUtils.info(sb.toString());
+        }
 
-        try {
-            Files.writeString(Paths.get(REPORT_PREFIX + formattedDate + REPORT_EXTENSION), sb.toString());
-        } catch (IOException e) {
-            LogUtils.warning("Could not write custom inlining report.");
+        // Write a report if in debug mode, or strict mode and we will fatally fail.
+        if (debug || count > 0) {
+            LocalDateTime myDateObj = LocalDateTime.now();
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy_HH-mm-ss");
+            String formattedDate = myDateObj.format(formatter);
+
+            String reportName = REPORT_PREFIX + formattedDate + REPORT_EXTENSION;
+            try {
+                Files.writeString(Paths.get(reportName), sb.toString());
+            } catch (IOException e) {
+                LogUtils.warning("Could not write custom inlining report.");
+            }
+            if (count > 0 && strict) {
+                throw UserError.abort("Not all target inlining paths were found. Please see " + reportName + " for details.");
+            }
         }
     }
 }

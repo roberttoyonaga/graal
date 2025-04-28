@@ -1,6 +1,12 @@
 Force inlining along specified target paths.
 
-Usage: --custom-inlining=path/to/your/config/file.json
+Usage: --custom-inlining=config=<path>:strict=<boolean>:debug=<boolean>
+example: --custom-inlining=config=path/to/your/config/file.json:strict=false:debug=false
+
+Parameters:
+	config: The path to your configuration JSON file.
+	strict: Fail fatally if any target paths are not found. Defaults to false.
+	debug: Report diagnostic information. Defaults to false.
 
 The forced inlining occurs before the Native Image analysis phase during the image build.
 

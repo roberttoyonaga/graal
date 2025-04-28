@@ -758,7 +758,6 @@ public class NativeImageGenerator {
                 }
             }
             reporter.printCreationEnd(image.getImageFileSize(), heap.getLayerObjectCount(), image.getImageHeapSize(), codeCache.getCodeAreaSize(), numCompilations, image.getDebugInfoSize());
-            IBADecoderProvider.singleton().printDiagnostics();
         }
     }
 
@@ -825,6 +824,7 @@ public class NativeImageGenerator {
                         }
                         return !config.getAndResetRequireAnalysisIteration();
                     });
+                    IBADecoderProvider.singleton().printDiagnostics();
                 } catch (Throwable t) {
                     if (ImageSingletons.contains(RuntimeCompilationCallbacks.class)) {
                         ImageSingletons.lookup(RuntimeCompilationCallbacks.class).reportAnalysisError(aUniverse, t);
