@@ -65,7 +65,7 @@ public class HostedPrimitiveType extends HostedType {
     }
 
     @Override
-    private final HostedType getComponentType() {
+    public final HostedType getComponentType() {
         return null;
     }
 

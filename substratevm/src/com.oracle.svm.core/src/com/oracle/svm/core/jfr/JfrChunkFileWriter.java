@@ -556,11 +556,14 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
             getFileSupport().writeByte(fd, StringEncoding.UTF8_BYTE_ARRAY.getValue());
 
             int length = UninterruptibleUtils.String.modifiedUTF8Length(str, false);
-            Pointer buffer = com.oracle.svm.core.memory.NativeMemory.malloc(length, NmtCategory.JFR);
+            Pointer buffer = com.oracle.svm.core.memory.NullableNativeMemory.malloc(length, NmtCategory.JFR);
+            if (buffer.isNull()){
+                return;
+            }
             writeCompressedInt(length);
             UninterruptibleUtils.String.toModifiedUTF8(str, buffer, buffer.add(length), false);
             getFileSupport().write(fd, buffer, WordFactory.unsigned(length));
-            com.oracle.svm.core.memory.NativeMemory.free(buffer);
+            com.oracle.svm.core.memory.NullableNativeMemory.free(buffer);
         }
     }
 
