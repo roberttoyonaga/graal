@@ -29,6 +29,10 @@ import static com.oracle.svm.core.jfr.JfrThreadLocal.getNativeBufferList;
 
 import java.nio.charset.StandardCharsets;
 
+import com.oracle.svm.core.jfr.oldobject.JfrOldObjectRepository;
+import com.oracle.svm.core.nmt.NmtCategory;
+import jdk.graal.compiler.word.Word;
+
 import org.graalvm.nativeimage.IsolateThread;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
@@ -552,12 +556,11 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
             getFileSupport().writeByte(fd, StringEncoding.UTF8_BYTE_ARRAY.getValue());
 
             int length = UninterruptibleUtils.String.modifiedUTF8Length(str, false);
+            Pointer buffer = com.oracle.svm.core.memory.NativeMemory.malloc(length, NmtCategory.JFR);
             writeCompressedInt(length);
-            int bufferSize = 512; //must be a compile time constant. Or use malloc.
-            Pointer buffer = UnsafeStackValue.get(bufferSize);
-            Pointer bufferEnd = buffer.add(bufferSize);
-            UninterruptibleUtils.String.toModifiedUTF8(str, buffer, bufferEnd, false);
+            UninterruptibleUtils.String.toModifiedUTF8(str, buffer, buffer.add(length), false);
             getFileSupport().write(fd, buffer, WordFactory.unsigned(length));
+            com.oracle.svm.core.memory.NativeMemory.free(buffer);
         }
     }
 
