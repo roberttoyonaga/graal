@@ -120,6 +120,12 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
 
     private static boolean comparePaths(TargetPath expectedPath, List<String> actualPath) {
         // Check whether the actual path aligns with the first N steps of the target path.
+
+        if (expectedPath.size() <= actualPath.size()) {
+            // The current callee cannot be on the expected path.
+            return false;
+        }
+
         int i = 0;
         while (i < actualPath.size()) {
             if (!actualPath.get(i).equals(expectedPath.getMethodId(i))) {
