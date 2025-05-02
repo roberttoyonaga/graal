@@ -177,13 +177,24 @@ public class JfrTypeRepository implements JfrRepository {
 
     private void writeClass(TypeInfo typeInfo, JfrChunkWriter writer, ClassInfoRaw classInfoRaw, boolean flushpoint) {
         assert classInfoRaw.getHash() != 0;
+        Class<?> clazz = classInfoRaw.getInstance();
+        PackageInfoRaw packageInfoRaw = StackValue.get(PackageInfoRaw.class);
+        setPackageNameAndLength(clazz, packageInfoRaw);
+        packageInfoRaw.setHash(getHash("test"));
 
+        boolean hasClassLoader = clazz.getClassLoader() != null;
         writer.writeCompressedLong(classInfoRaw.getId());
-        writer.writeCompressedLong(getClassLoaderId(typeInfo, classInfoRaw.getClassLoaderName(),  classInfoRaw.getHasClassLoader()));
-        writer.writeCompressedLong(getSymbolId(writer, classInfoRaw.getName(), flushpoint, true));
-        writer.writeCompressedLong(getPackageId(typeInfo, classInfoRaw.getModifiedUTF8PackageName(), classInfoRaw.getNameLength(), getHash(classInfoRaw.getName())));
-        writer.writeCompressedLong(classInfoRaw.getModifiers());
-        writer.writeBoolean(classInfoRaw.getIsHidden());
+        writer.writeCompressedLong(getClassLoaderId(typeInfo, hasClassLoader ? clazz.getClassLoader().getName() : null,  hasClassLoader));
+        writer.writeCompressedLong(getSymbolId(writer, clazz.getName(), flushpoint, true));
+        writer.writeCompressedLong(getPackageId(typeInfo, packageInfoRaw, clazz.getName() + " " + clazz.getPackageName()+ " " + clazz.isArray()+ " " + clazz.isPrimitive()));
+        writer.writeCompressedLong(clazz.getModifiers());
+        writer.writeBoolean(clazz.isHidden());
+
+        // We no longer need the buffer.
+        if(packageInfoRaw.getModifiedUTF8Name().isNonNull()){
+            NullableNativeMemory.free(packageInfoRaw.getModifiedUTF8Name());
+        }
+        System.out.println("Success: "+clazz.getPackageName());
     }
 
     @Uninterruptible(reason = "Needed for JfrSymbolRepository.getSymbolId().")
@@ -298,20 +309,8 @@ public class JfrTypeRepository implements JfrRepository {
             return false;
         }
 
-        // Class hasn't yet been visited so set the package info. Package name buffer is malloc'ed.
-        PackageInfoRaw packageInfoRaw = StackValue.get(PackageInfoRaw.class);
-        if (setPackageNameAndLength(clazz, packageInfoRaw)) {
-            hasPackage = true;
-        }
-
-        classInfoRaw.setModifiedUTF8PackageName(hasPackage ? packageInfoRaw.getModifiedUTF8Name() : WordFactory.nullPointer());
-        classInfoRaw.setNameLength(hasPackage ? packageInfoRaw.getNameLength() : WordFactory.unsigned(0));
         classInfoRaw.setName(clazz.getName());
-        classInfoRaw.setIsHidden(clazz.isHidden());
-        classInfoRaw.setModifiers(clazz.getModifiers());
-        // TODO the orig uses the class's CL but should we use the module's CL? Thats the only place we addClassloader
-        classInfoRaw.setHasClassLoader(clazz.getClassLoader() != null);
-        classInfoRaw.setClassLoaderName(classInfoRaw.getHasClassLoader() ? clazz.getClassLoader().getName() : null); // ***  if you forget to set something accessing it will segfault.
+        classInfoRaw.setInstance(clazz);
         assert !typeInfo.classes.contains(classInfoRaw);
         typeInfo.classes.putNew(classInfoRaw); // *** must be value on stack. Hopefully it shallow copies the malloc'ed buffer. It does since it just uses memcpy on the header
         assert typeInfo.classes.contains(classInfoRaw);
@@ -332,7 +331,7 @@ public class JfrTypeRepository implements JfrRepository {
 
         PackageInfoRaw packageInfoRaw = StackValue.get(PackageInfoRaw.class);
         setPackageNameAndLength(clazz, packageInfoRaw);
-        packageInfoRaw.setHash(getHash(clazz.getName()));
+        packageInfoRaw.setHash(getHash("test")); // TODO there must be a better way
         if (isPackageVisited(typeInfo, packageInfoRaw)) {
             assert moduleName == (flushedPackages.contains(packageInfoRaw) ? ((PackageInfoRaw)flushedPackages.get(packageInfoRaw)).getModuleName() : ((PackageInfoRaw)typeInfo.packages.get(packageInfoRaw)).getModuleName());
             NullableNativeMemory.free(packageInfoRaw.getModifiedUTF8Name());
@@ -344,7 +343,7 @@ public class JfrTypeRepository implements JfrRepository {
         packageInfoRaw.setHasModule(hasModule);
         packageInfoRaw.setModuleName(moduleName);
         assert !typeInfo.packages.contains(packageInfoRaw); // *** remove later
-        typeInfo.packages.putNew(packageInfoRaw);
+        typeInfo.packages.putNew(packageInfoRaw); // *** Do not free the buffer. A pointer to it is shallow copied into the hash map.
         assert typeInfo.packages.contains(packageInfoRaw);
         return true;
     }
@@ -353,14 +352,13 @@ public class JfrTypeRepository implements JfrRepository {
         return flushedPackages.contains(packageInfoRaw) || typeInfo.packages.contains(packageInfoRaw);
     }
 
-    private long getPackageId(TypeInfo typeInfo, PointerBase modifiedUTF8PackageName, UnsignedWord length, int hash) {
-        if (modifiedUTF8PackageName.isNonNull() && length.aboveOrEqual(1)) {
-            PackageInfoRaw packageInfoRaw = StackValue.get(PackageInfoRaw.class);
-            packageInfoRaw.setModifiedUTF8Name(modifiedUTF8PackageName);
-            packageInfoRaw.setNameLength(length);
-            packageInfoRaw.setHash(hash); // Using the associated class' name for the hash
+    private long getPackageId(TypeInfo typeInfo, PackageInfoRaw packageInfoRaw, String s) {
+        if (packageInfoRaw.getModifiedUTF8Name().isNonNull() && packageInfoRaw.getNameLength().aboveOrEqual(1)) {
             if (flushedPackages.contains(packageInfoRaw)) {
                 return ((PackageInfoRaw) flushedPackages.get(packageInfoRaw)).getId();
+            }
+            if (!typeInfo.packages.contains(packageInfoRaw)){
+                System.out.println(s);
             }
             return ((PackageInfoRaw) typeInfo.packages.get(packageInfoRaw)).getId();
         } else {
@@ -406,8 +404,6 @@ public class JfrTypeRepository implements JfrRepository {
             // Bootstrap loader has reserved ID of 0 (getClassLoaderId returns 0)
             classLoaderInfoRaw.setName("bootstrap");
             classLoaderInfoRaw.setHash(0);
-            classLoaderInfoRaw.setId(0);
-            classLoaderInfoRaw.setClassTraceId(0);
         } else {
             classLoaderInfoRaw.setName(classLoader.getName());
             classLoaderInfoRaw.setHash(getHash(classLoader.getName()));
@@ -419,6 +415,9 @@ public class JfrTypeRepository implements JfrRepository {
         if (classLoader != null) {
             classLoaderInfoRaw.setId(++currentClassLoaderId);
             classLoaderInfoRaw.setClassTraceId(JfrTraceId.getTraceId(classLoader.getClass()));
+        } else {
+            classLoaderInfoRaw.setId(0);
+            classLoaderInfoRaw.setClassTraceId(0);
         }
         typeInfo.classLoaders.putNew(classLoaderInfoRaw);
         return true;
@@ -436,8 +435,10 @@ public class JfrTypeRepository implements JfrRepository {
             if (flushedClassLoaders.contains(classLoaderInfoRaw)) {
                 return ((ClassLoaderInfoRaw) flushedClassLoaders.get(classLoaderInfoRaw)).getId();
             }
+            com.oracle.svm.core.util.VMError.guarantee(typeInfo.classLoaders.contains(classLoaderInfoRaw));
             return ((ClassLoaderInfoRaw) typeInfo.classLoaders.get(classLoaderInfoRaw)).getId();
         }
+        // Bootstrap classloader
         return 0;
     }
 
@@ -474,31 +475,34 @@ public class JfrTypeRepository implements JfrRepository {
     // *** we shouldn't preemtively compute ALL package names, only the ones used in JFR events. This current approach is ok, but since we don't stash, we must recompute every time.
     // *** Maybe its not a big deal since we call getPackage() on every class we visit anyway. And we only do this for classes that are in an event.
     /** This method sets the package name and length. packageInfoRaw may be on the stack or native memory.*/
-    private boolean setPackageNameAndLength(Class<?> clazz, PackageInfoRaw packageInfoRaw) {
-        if (clazz.isPrimitive() || clazz.isArray()) {
-            return false;
-        }
-
+    private void setPackageNameAndLength(Class<?> clazz, PackageInfoRaw packageInfoRaw) {
         DynamicHub hub = DynamicHub.fromClass(clazz);
         if (!LayoutEncoding.isHybrid(hub.getLayoutEncoding())) {
             while (hub.hubIsArray()) {
                 hub = hub.getComponentType();
             }
         }
+        String str;
+        if (hub.isPrimitive()) {
+            str = "java.lang."; // extra dot
+        } else {
+           str = hub.getName();
+        }
 
-        String str = hub.getName();
         int dot = str.lastIndexOf('.');
         if (dot == -1) {
             dot = 0;
         }
 
-        int utf8Length = UninterruptibleUtils.String.modifiedUTF8Length(str, false);
+        int utf8Length = UninterruptibleUtils.String.modifiedUTF8Length(str, false, dotWithSlash);
         Pointer buffer = NullableNativeMemory.malloc(utf8Length, NmtCategory.JFR);
         Pointer bufferEnd = buffer.add(utf8Length);
 
-        // If malloc fails, we'll just set a blank package name.
+        // If malloc fails, set a blank package name.
         if (buffer.isNull()) {
-            return false;
+            packageInfoRaw.setModifiedUTF8Name(WordFactory.nullPointer());
+            packageInfoRaw.setNameLength(WordFactory.unsigned(0));
+            return;
         }
 
         assert buffer.add(dot).belowOrEqual(bufferEnd);
@@ -511,7 +515,6 @@ public class JfrTypeRepository implements JfrRepository {
         if (dot == 0) {
             assert packageNameLength.equal(0);
         }
-        return true;
     }
 
     private static int getHash(String imageHeapString) {
@@ -542,30 +545,10 @@ public class JfrTypeRepository implements JfrRepository {
     private interface ClassInfoRaw extends JfrTypeInfo {
         @PinnedObjectField
         @RawField
-        void setClassLoaderName(String value);
+        void setInstance(Class<?> value);
         @PinnedObjectField
         @RawField
-        String getClassLoaderName();
-        @RawField
-        void setHasClassLoader(boolean value);
-        @RawField
-        boolean getHasClassLoader();
-        @RawField
-        void setNameLength(UnsignedWord value);
-        @RawField
-        UnsignedWord getNameLength();
-        @RawField
-        void setModifiedUTF8PackageName(PointerBase value);
-        @RawField
-        PointerBase getModifiedUTF8PackageName();
-        @RawField
-        void setModifiers(long value);
-        @RawField
-        long getModifiers();
-        @RawField
-        void setIsHidden(boolean value);
-        @RawField
-        boolean getIsHidden();
+        Class<?> getInstance();
     }
 
     @RawStructure
@@ -599,7 +582,7 @@ public class JfrTypeRepository implements JfrRepository {
         @RawField
         String getClassLoaderName();
         @RawField
-        void setHasClassLoader(boolean value);
+        void setHasClassLoader(boolean value); // *** name may be empty or null, but CL may be non null
         @RawField
         boolean getHasClassLoader();
     }
@@ -659,38 +642,6 @@ public class JfrTypeRepository implements JfrRepository {
         @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
         protected UninterruptibleEntry copyToHeap(UninterruptibleEntry visitedOnStack) {
             return copyToHeap(visitedOnStack, SizeOf.unsigned(ClassInfoRaw.class));
-        }
-
-        @Override
-        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-        protected void free(UninterruptibleEntry entry) {
-            ClassInfoRaw classInfoRaw = (ClassInfoRaw) entry;
-            /* The base method will free only the entry itself, not th utf8 data. */
-            NullableNativeMemory.free(classInfoRaw.getModifiedUTF8PackageName());
-            classInfoRaw.setModifiedUTF8PackageName(WordFactory.nullPointer());
-            super.free(entry);
-        }
-
-        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-        public void putAll(JfrClassInfoTable sourceTable) {
-            for (int i = 0; i < sourceTable.getTable().length; i++) {
-                ClassInfoRaw sourceInfo = (ClassInfoRaw) sourceTable.getTable()[i];
-                while (sourceInfo.isNonNull()) {
-                    if (!contains(sourceInfo)) {
-                        // Put if not already there.
-                        ClassInfoRaw destinationInfo = (ClassInfoRaw) putNew(sourceInfo); // *** does a shallow copy... BAD it can overwrites ptrs that were malloc'ed!!! ... but there shouldnt be overlap anyway...
-                        // allocate a new buffer
-                        PointerBase newUtf8Name = NullableNativeMemory.malloc(sourceInfo.getNameLength(), NmtCategory.JFR);
-                        // set the buffer ptr
-                        destinationInfo.setModifiedUTF8PackageName(newUtf8Name);
-                        // Copy source buffer contents over to new buffer
-                        if (newUtf8Name.isNonNull()) {
-                            UnmanagedMemoryUtil.copy((Pointer) sourceInfo.getModifiedUTF8PackageName(), (Pointer) newUtf8Name, sourceInfo.getNameLength());
-                        }
-                    }
-                    sourceInfo = sourceInfo.getNext();
-                }
-            }
         }
     }
 
