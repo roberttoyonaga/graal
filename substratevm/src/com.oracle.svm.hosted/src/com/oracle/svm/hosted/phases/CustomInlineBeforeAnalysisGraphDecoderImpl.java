@@ -79,12 +79,12 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     private boolean onInlinePath(ResolvedJavaMethod method, PEMethodScope caller) {
         boolean result = false;
         String calleeId = getMethodId(method);
-        // First check if the next scope is the root method.
-        // createMethodScope is called on the root method of each DFS.
+
+        // First check the special/starting case where we're creating the scope for the root method.
         if (caller == null) {
             for (TargetPath targetPath : inlinePaths) {
-                if (targetPath.getMethodId(0).equals(calleeId)) {
-                    targetPath.setFound(0);
+                if (targetPath.getCallsite() != null && targetPath.getCallsite().getMethodId().equals(calleeId)) {
+                    targetPath.getCallsite().setFound();
                     // Can't return immediately. May need to set found on multiple paths.
                     result = true;
                 }
@@ -92,23 +92,19 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
             return result;
         }
 
-        // An optimization. If the caller is not on the path, then the callee also must not be.
+        // Reconstruct the actual path taken thus far.
         CustomInlineBeforeAnalysisMethodScope callerScope = cast(caller);
-        if (!callerScope.isOnInlinePath) {
-            return false;
-        }
-
         List<String> actualPath = new ArrayList<>();
         while (callerScope != null) {
             actualPath.addFirst(getMethodId(callerScope.method));
-            assert callerScope.isOnInlinePath;
             callerScope = cast(callerScope.caller);
         }
 
+        // Determine whether the method argument is the next step on any target path.
         for (TargetPath expectedPath : inlinePaths) {
-            if (comparePaths(expectedPath, actualPath)) {
-                // Now check whether the next step also matches.
-                int nextIdx = actualPath.size();
+            int nextIdx = comparePaths(expectedPath, actualPath);
+            if (nextIdx >= 0) {
+                // Paths match thus far. Now check whether the next step also matches.
                 if (nextIdx < expectedPath.size() && expectedPath.getMethodId(nextIdx).equals(calleeId)) {
                     expectedPath.setFound(nextIdx);
                     result = true;
@@ -118,22 +114,42 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
         return result;
     }
 
-    private static boolean comparePaths(TargetPath expectedPath, List<String> actualPath) {
-        // Check whether the actual path aligns with the first N steps of the target path.
+    /**
+     * Returns the next target path index to be compared if the end portion of the actual path
+     * overlaps the front portion of the target path. Otherwise -1. If a target path does not have a
+     * specified callsite, we need to be able to handle them regardless of the depth they are first
+     * encountered at.
+     */
+    private static int comparePaths(TargetPath targetPath, List<String> actualPath) {
+        int targetIdx = 0; // target
+        int actualIdx = 0; // actual
 
-        if (expectedPath.size() <= actualPath.size()) {
-            // The current callee cannot be on the expected path.
-            return false;
-        }
-
-        int i = 0;
-        while (i < actualPath.size()) {
-            if (!actualPath.get(i).equals(expectedPath.getMethodId(i))) {
-                return false;
+        // If a target callsite is specified, check whether it matches the actual root method.
+        if (targetPath.getCallsite() != null) {
+            if (targetPath.getCallsite().getMethodId().equals(actualPath.get(0))) {
+                actualIdx++;
+            } else {
+                return -1;
             }
-            i++;
         }
-        return true;
+
+        while (targetIdx < targetPath.size() && actualIdx < actualPath.size()) {
+            if (actualPath.get(actualIdx).equals(targetPath.getMethodId(targetIdx))) {
+                actualIdx++;
+                targetIdx++;
+            } else if (targetIdx > 0) {
+                // paths don't match up
+                return -1;
+            } else {
+                /*
+                 * Step forwards through the actual path until we reach a potential start of the
+                 * target path.
+                 */
+                actualIdx++;
+            }
+        }
+        assert targetIdx <= actualIdx;
+        return actualIdx == actualPath.size() ? targetIdx : -1;
     }
 
     /**

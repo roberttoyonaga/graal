@@ -26,26 +26,39 @@
 
 package com.oracle.svm.hosted;
 
+import com.oracle.svm.core.configure.ConfigurationParser;
 import java.util.ArrayList;
 import java.util.List;
 
-/** This class is mainly necessary for gathering diagnostics. */
 public class TargetPath {
     List<TargetMethod> path;
+    // This may be null or a specific method ID. If null, inline at all callsites.
+    TargetMethod callsiteId;
 
-    public TargetPath(List<String> path) {
+    public TargetPath(List<Object> path, String callsiteId) {
         this.path = new ArrayList<>();
-        for (String methodId : path) {
-            this.path.add(new TargetMethod(methodId));
+        this.callsiteId = callsiteId == null ? null : new TargetMethod(callsiteId);
+        for (Object methodId : path) {
+            this.path.add(new TargetMethod(ConfigurationParser.asString(methodId)));
         }
     }
 
-    // This should only be executed after the inlining before analysis step is complete.
+    /**
+     * Used for reporting diagnostics. This should only be executed after the inlining before
+     * analysis step is complete.
+     */
     public boolean isFound() {
-        return path.getLast().isFound();
+        return (callsiteId == null || callsiteId.isFound()) && path.getLast().isFound();
     }
 
+    /**
+     * Used for reporting diagnostics. Returns the first target method along the path that was not
+     * found.
+     */
     public TargetMethod getDivergencePoint() {
+        if (callsiteId != null && !callsiteId.isFound()) {
+            return callsiteId;
+        }
         for (TargetMethod targetMethod : path) {
             if (!targetMethod.isFound()) {
                 return targetMethod;
@@ -66,9 +79,14 @@ public class TargetPath {
         return path.size();
     }
 
+    public TargetMethod getCallsite() {
+        return callsiteId;
+    }
+
     public String getMethodId(int index) {
         return path.get(index).getMethodId();
     }
+
     public void setFound(int index) {
         path.get(index).setFound();
     }
@@ -81,6 +99,13 @@ public class TargetPath {
             sb.append(targetMethod).append(", ");
         }
         sb.append("]");
+        sb.append("\n");
+        sb.append("Callsite: ");
+        if (callsiteId == null) {
+            sb.append("All locations");
+        } else {
+            sb.append(callsiteId);
+        }
         return sb.toString();
     }
 

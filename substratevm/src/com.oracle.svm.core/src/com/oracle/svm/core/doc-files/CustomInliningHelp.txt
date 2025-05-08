@@ -10,20 +10,37 @@ Parameters:
 
 The forced inlining occurs before the Native Image analysis phase during the image build.
 
-Target paths are specified in a configuration JSON file.
-Target paths should be formatted as json arrays. The order is caller -> callee_1 -> callee_2
-Paths can be specified in any order within the configuration file.
+Inlining configuration is specified in a configuration JSON file.
+The configuration JSON contains a single object with 2 top level fields: "paths" and "cutoffs".
+Target paths may be specified under the "paths" field as elements of an array.
+Each "paths" object should contain a "path" and "callsite" field.
+The "path" should be formatted as an array. The order is caller -> callee_1 -> callee_2
+The "callsite" field can be a specific method ID or null.
+Specifying a method ID means that forced inlining will only happen into that caller.
+Leaving "callsite" as null means that the whole "path" will be inlined wherever it appears.
+
+Other notes:
+Path objects can be specified in any order within the configuration file.
 There is no limit on the number of target paths that may be specified.
 There is no limit on the length of specified target paths.
 Incorrect/invalid paths will not cause errors.
 
-Each method in a path must have the format: <fully qualified classname><method name><parameterType1parameterType2...>".
+Each method ID in a path must have the format: <fully qualified classname><method name><parameterType1parameterType2...>".
 Ex.  Lio/vertx/core/http/impl/headers/HeadersMultiMap;add(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)
-
 
 See the example below:
 
-[
-  ["Ljava/lang/String;charAt(I)", "Ljava/lang/StringLatin1;charAt([BI)"],
-  ["Lio/netty/util/AsciiString;hashCode(Ljava/lang/CharSequence;)", "Lio/netty/util/internal/PlatformDependent;hashCodeAscii(Ljava/lang/CharSequence;)"],
-]
+{
+  "paths":  [
+    {
+      "path" : ["Ljava/lang/String;charAt(I)", "Ljava/lang/String;isLatin1()"],
+      "callsite": null
+    },
+    {
+      "path" :   ["Ljava/lang/String;isLatin1()"],
+      "callsite": "Ljava/lang/String;indexOf(I)",
+    }
+  ],
+  "cutoffs": [
+  ]
+}

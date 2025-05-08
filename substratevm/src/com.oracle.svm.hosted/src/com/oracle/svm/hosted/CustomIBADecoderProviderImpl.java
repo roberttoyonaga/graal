@@ -30,16 +30,20 @@ import com.oracle.graal.pointsto.BigBang;
 import com.oracle.graal.pointsto.meta.HostedProviders;
 import com.oracle.graal.pointsto.phases.InlineBeforeAnalysisGraphDecoder;
 import com.oracle.graal.pointsto.phases.InlineBeforeAnalysisPolicy;
+import com.oracle.svm.core.configure.ConfigurationParser;
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.feature.AutomaticallyRegisteredFeature;
 import com.oracle.svm.core.feature.InternalFeature;
 import com.oracle.svm.core.util.UserError;
 import com.oracle.svm.hosted.phases.CustomInlineBeforeAnalysisGraphDecoderImpl;
 import com.oracle.svm.util.LogUtils;
-import jdk.graal.compiler.nodes.StructuredGraph;
+
+import org.graalvm.collections.EconomicMap;
 import org.graalvm.nativeimage.ImageSingletons;
 
 import jdk.graal.compiler.util.json.JsonParser;
+import jdk.graal.compiler.util.json.JsonParserException;
+import jdk.graal.compiler.nodes.StructuredGraph;
 
 import java.io.File;
 import java.io.FileReader;
@@ -55,10 +59,10 @@ import java.util.List;
 public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
     private static final String REPORT_PREFIX = "custom_inlining_report_";
     private static final String REPORT_EXTENSION = ".txt";
-    List<TargetPath> targetPaths;
-    String configFileString;
-    boolean strict;
-    boolean debug;
+    private List<TargetPath> targetPaths;
+    private String configFileString;
+    private boolean strict;
+    private boolean debug;
 
     /**
      * {@linkplain CustomIBADecoderProviderImpl#createDecoder } is called for each method found to
@@ -69,7 +73,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, getTargetPaths());
     }
 
-    private List<TargetPath> getTargetPaths() {
+    private synchronized List<TargetPath> getTargetPaths() {
         if (targetPaths != null) {
             return targetPaths;
         }
@@ -84,13 +88,19 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         if (configFile.exists()) {
             try {
                 JsonParser parser = new JsonParser(new FileReader(configFile));
-                List<List<String>> pathList = (List<List<String>>) parser.parse();
-
-                // Quick sanity checks
-                assert pathList != null && pathList.size() > 0 && pathList.getFirst().size() > 1;
-
-                for (List<String> path : pathList) {
-                    targetPaths.add(new TargetPath(path));
+                EconomicMap<String, Object> map = ConfigurationParser.asMap(parser.parse(),
+                                "top level of custom inlining configuration JSON must be a single object with 'paths' and 'cutoffs' fields.");
+                for (String key : map.getKeys()) {
+                    switch (key) {
+                        case "paths":
+                            parsePaths(ConfigurationParser.asList(map.get(key), "paths field should be a list of path objects."));
+                            break;
+                        case "cutoffs":
+                            // TODO
+                            break;
+                        default:
+                            throw new JsonParserException("Unrecognized key: " + key);
+                    }
                 }
             } catch (IOException e) {
                 LogUtils.warning("Custom inlining configuration file could not be read. Proceeding without target paths.");
@@ -99,6 +109,15 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
             LogUtils.warning("Custom inlining configuration file does not exist: " + configFileString + " . Proceeding without target paths.");
         }
         return targetPaths;
+    }
+
+    private void parsePaths(List<Object> pathList) {
+        // Quick sanity checks
+        assert pathList != null && pathList.size() > 0;
+        for (Object path : pathList) {
+            EconomicMap<String, Object> map = ConfigurationParser.asMap(path, "Path object must contain list of Strings and callsite");
+            targetPaths.add(new TargetPath(ConfigurationParser.asList(map.get("path"), " path field should be in a list of Strings"), (String) map.get("callsite")));
+        }
     }
 
     private boolean parseOptions() {
@@ -123,7 +142,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
                     strict = Boolean.valueOf(value);
                     break;
                 default:
-                    //Ignore unrecognized parameters
+                    // Ignore unrecognized parameters
                     LogUtils.warning("Unrecognized custom inlining parameter: " + key);
                     break;
             }
@@ -132,7 +151,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
     }
 
     public void printDiagnostics() {
-        if (!debug && !strict){
+        if (!debug && !strict) {
             return;
         }
         StringBuilder sb = new StringBuilder("\n\n----------------------\n");
