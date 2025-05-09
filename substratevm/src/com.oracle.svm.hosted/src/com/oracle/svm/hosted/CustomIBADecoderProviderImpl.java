@@ -60,6 +60,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
     private static final String REPORT_PREFIX = "custom_inlining_report_";
     private static final String REPORT_EXTENSION = ".txt";
     private List<TargetPath> targetPaths;
+    private List<TargetPath> cutoffs;
     private String configFileString;
     private boolean strict;
     private boolean debug;
@@ -70,18 +71,20 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
      */
     @Override
     public InlineBeforeAnalysisGraphDecoder createDecoder(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers) {
-        return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, getTargetPaths());
+        parseTargetPaths();
+        return new CustomInlineBeforeAnalysisGraphDecoderImpl(bb, policy, graph, providers, targetPaths, cutoffs);
     }
 
-    private synchronized List<TargetPath> getTargetPaths() {
+    private synchronized void parseTargetPaths() {
         if (targetPaths != null) {
-            return targetPaths;
+            return;
         }
 
         targetPaths = new ArrayList<>();
+        cutoffs = new ArrayList<>();
         if (!parseOptions()) {
             LogUtils.warning("Parsing custom inlining options failed");
-            return targetPaths;
+            return;
         }
 
         File configFile = new File(configFileString);
@@ -96,7 +99,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
                             parsePaths(ConfigurationParser.asList(map.get(key), "paths field should be a list of path objects."));
                             break;
                         case "cutoffs":
-                            // TODO
+                            parseCutoffs(ConfigurationParser.asList(map.get(key), "cutoffs field should be a list of path objects."));
                             break;
                         default:
                             throw new JsonParserException("Unrecognized key: " + key);
@@ -108,7 +111,6 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         } else {
             LogUtils.warning("Custom inlining configuration file does not exist: " + configFileString + " . Proceeding without target paths.");
         }
-        return targetPaths;
     }
 
     private void parsePaths(List<Object> pathList) {
@@ -117,6 +119,15 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         for (Object path : pathList) {
             EconomicMap<String, Object> map = ConfigurationParser.asMap(path, "Path object must contain list of Strings and callsite");
             targetPaths.add(new TargetPath(ConfigurationParser.asList(map.get("path"), " path field should be in a list of Strings"), (String) map.get("callsite")));
+        }
+    }
+
+    private void parseCutoffs(List<Object> cutoffList) {
+        // Quick sanity checks
+        assert cutoffList != null && cutoffList.size() > 0;
+        for (Object path : cutoffList) {
+            EconomicMap<String, Object> map = ConfigurationParser.asMap(path, "Path object must contain list of Strings and callsite");
+            cutoffs.add(new TargetPath(ConfigurationParser.asList(map.get("cutoff"), " cutoff field should be in a list containing a single String"), (String) map.get("callsite")));
         }
     }
 
@@ -169,7 +180,16 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
             }
         }
         sb.append(count).append(" paths not found\n");
-        sb.append(targetPaths.size()).append(" total paths\n");
+        sb.append(targetPaths.size()).append(" total paths\n\n");
+
+        sb.append("The following cutoffs were not found: \n\n");
+        for (TargetPath targetPath : cutoffs) {
+            if (!targetPath.isFound()) {
+                sb.append("----------------------\n");
+                sb.append(targetPath).append("\n\n");
+                sb.append(">>> Divergence point: ").append(targetPath.getDivergencePoint()).append("\n\n");
+            }
+        }
 
         // Only write to output if in debug mode.
         if (debug) {
