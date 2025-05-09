@@ -43,27 +43,32 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
 
     public class CustomInlineBeforeAnalysisMethodScope extends InlineBeforeAnalysisGraphDecoder.InlineBeforeAnalysisMethodScope {
         boolean isOnInlinePath;
+        boolean isBeyondCutoff;
 
         CustomInlineBeforeAnalysisMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope, jdk.graal.compiler.nodes.EncodedGraph encodedGraph,
                         com.oracle.graal.pointsto.meta.AnalysisMethod method,
-                        InvokeData invokeData, int inliningDepth, ValueNode[] arguments, boolean isOnInlinePath) {
+                        InvokeData invokeData, int inliningDepth, ValueNode[] arguments, boolean isOnInlinePath, boolean isBeyondCutoff) {
             super(targetGraph, caller, callerLoopScope, encodedGraph, method, invokeData, inliningDepth, arguments);
             this.isOnInlinePath = isOnInlinePath;
+            this.isBeyondCutoff = isBeyondCutoff;
         }
     }
 
     private final List<TargetPath> inlinePaths;
+    private final List<TargetPath> cutoffs;
 
-    public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, List<TargetPath> paths) {
+    public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, List<TargetPath> paths,
+                    List<TargetPath> cutoffs) {
         super(bb, policy, graph, providers);
         this.inlinePaths = paths;
+        this.cutoffs = cutoffs;
     }
 
     @Override
     protected void maybeAbortInlining(MethodScope ms, @SuppressWarnings("unused") LoopScope loopScope, Node node) {
         CustomInlineBeforeAnalysisMethodScope methodScope = cast(ms);
-        if (methodScope.isOnInlinePath) {
-            // If the caller scope is on the inline path, never abort.
+        if (methodScope.isOnInlinePath || methodScope.isBeyondCutoff) {
+            // If the caller scope should be force inlined, do not abort.
             // We are evaluating whether the caller should be inlined by checking its callees.
             // Similar to the alwaysInlineInvoke check, we do not update the accumulative counters.
             return;
@@ -75,19 +80,26 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
         return (CustomInlineBeforeAnalysisMethodScope) methodScope;
     }
 
-    /** Is the next callee on the target callpath? */
+    /**
+     * Determine whether the next callee is on a target callpath. It is possible that the actual
+     * path taken overlaps multiple target paths, resulting in a single long inlining chain.
+     */
     private boolean onInlinePath(ResolvedJavaMethod method, PEMethodScope caller) {
         boolean result = false;
         String calleeId = getMethodId(method);
 
-        // First check the special/starting case where we're creating the scope for the root method.
+        // First check the special/starting case when root method's scope is being created.
         if (caller == null) {
             for (TargetPath targetPath : inlinePaths) {
                 if (targetPath.getCallsite() != null && targetPath.getCallsite().getMethodId().equals(calleeId)) {
                     targetPath.getCallsite().setFound();
-                    // Can't return immediately. May need to set found on multiple paths.
+                    // Can't return immediately. May need to flag multiple paths as found.
                     result = true;
                 }
+                /*
+                 * If a callsite is not specified, and the root method argument matches the first
+                 * step on the path, do nothing. There is no caller for the root to be inlined into.
+                 */
             }
             return result;
         }
@@ -100,13 +112,13 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
             callerScope = cast(callerScope.caller);
         }
 
-        // Determine whether the method argument is the next step on any target path.
-        for (TargetPath expectedPath : inlinePaths) {
-            int nextIdx = comparePaths(expectedPath, actualPath);
+        // Determine whether the callee is the next step on any target path.
+        for (TargetPath targetPath : inlinePaths) {
+            int nextIdx = comparePaths(targetPath, actualPath);
             if (nextIdx >= 0) {
                 // Paths match thus far. Now check whether the next step also matches.
-                if (nextIdx < expectedPath.size() && expectedPath.getMethodId(nextIdx).equals(calleeId)) {
-                    expectedPath.setFound(nextIdx);
+                if (nextIdx < targetPath.size() && targetPath.getMethodId(nextIdx).equals(calleeId)) {
+                    targetPath.setFound(nextIdx);
                     result = true;
                 }
             }
@@ -124,17 +136,20 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
         int targetIdx = 0; // target
         int actualIdx = 0; // actual
 
-        // If a target callsite is specified, check whether it matches the actual root method.
-        if (targetPath.getCallsite() != null) {
-            if (targetPath.getCallsite().getMethodId().equals(actualPath.get(0))) {
-                actualIdx++;
-            } else {
-                return -1;
-            }
-        }
-
         while (targetIdx < targetPath.size() && actualIdx < actualPath.size()) {
             if (actualPath.get(actualIdx).equals(targetPath.getMethodId(targetIdx))) {
+                // Steps match between paths. Now account for possible callsites when handling roots
+                if (targetIdx == 0) {
+                    if (targetPath.getCallsite() != null && (actualIdx == 0 || !targetPath.getCallsite().getMethodId().equals(actualPath.get(actualIdx - 1)))) {
+                        // If callsite exists, ensure it matches
+                        actualIdx++;
+                        continue;
+                    } else if (targetPath.getCallsite() == null && actualIdx == 0) {
+                        // If callsite doesn't exist, the roots of the actual path and target path
+                        // should not match.
+                        return -1;
+                    }
+                }
                 actualIdx++;
                 targetIdx++;
             } else if (targetIdx > 0) {
@@ -150,6 +165,59 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
         }
         assert targetIdx <= actualIdx;
         return actualIdx == actualPath.size() ? targetIdx : -1;
+    }
+
+    /** The cutoff itself also gets inlined. The cutoff should generally be small. */
+    private boolean isBeyondCutoff(ResolvedJavaMethod method, PEMethodScope caller) {
+        String calleeId = getMethodId(method);
+
+        // First check the special/starting case when root method's scope is being created.
+        if (caller == null) {
+            for (TargetPath cutoff : cutoffs) {
+                if (cutoff.getCallsite() != null && cutoff.getCallsite().getMethodId().equals(calleeId)) {
+                    cutoff.getCallsite().setFound();
+                }
+            }
+            // Even if this root method matches a cutoff, there is no caller to inline it into.
+            return false;
+        }
+
+        // At this point, the callee being evaluated is not a root.
+        CustomInlineBeforeAnalysisMethodScope callerScope = cast(caller);
+
+        // All methods transitively called after the cutoff (inclusive) are force inlined.
+        if (callerScope.isBeyondCutoff) {
+            // TODO maybe allow for node size threshold conditions
+            // The problem is, unlike the IAA stage, we don't have the decoded graph yet.
+            // So we need to visit all the callees to determine the number of invokes and nodes
+            // (like what the default policy does).
+            // The best solution is to change createAccumulativeInlineScope to accept thresholds
+            // based on whether the scope is a cutoff.
+            // But that requires invasive changes.
+            return true;
+        }
+
+        /*
+         * At this point, the callee being evaluated is not a root and is not past an encountered
+         * cutoff. Determine whether the callee itself is a cutoff.
+         */
+        for (TargetPath cutoff : cutoffs) {
+            if (!cutoff.getFirst().getMethodId().equals(calleeId)) {
+                continue;
+            }
+            // The cutoff matches the current callee. Does the callsite match?
+            if (cutoff.getCallsite() == null) {
+                // The callee is a cutoff that we must force inline from all locations.
+                cutoff.getFirst().setFound();
+                return true;
+            } else if (getMethodId(callerScope.method).equals(cutoff.getCallsite().getMethodId())) {
+                // The callee is a cutoff and its caller matches the corresponding target callsite.
+                cutoff.getFirst().setFound();
+                return true;
+            }
+            // The callsites do not match, continue searching the cutoff list.
+        }
+        return false;
     }
 
     /**
@@ -176,7 +244,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
                     int inliningDepth, ValueNode[] arguments) {
         CustomInlineBeforeAnalysisMethodScope scope = new CustomInlineBeforeAnalysisMethodScope(targetGraph, caller, callerLoopScope,
                         encodedGraph, (com.oracle.graal.pointsto.meta.AnalysisMethod) method, invokeData,
-                        inliningDepth, arguments, onInlinePath(method, caller));
+                        inliningDepth, arguments, onInlinePath(method, caller), isBeyondCutoff(method, caller));
         return scope;
     }
 }

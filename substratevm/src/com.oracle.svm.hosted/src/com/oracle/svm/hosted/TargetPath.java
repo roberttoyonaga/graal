@@ -48,7 +48,12 @@ public class TargetPath {
      * analysis step is complete.
      */
     public boolean isFound() {
-        return (callsiteId == null || callsiteId.isFound()) && path.getLast().isFound();
+        for (TargetMethod targetMethod : path) {
+            if (!targetMethod.isFound()) {
+                return false;
+            }
+        }
+        return callsiteId == null || callsiteId.isFound();
     }
 
     /**
