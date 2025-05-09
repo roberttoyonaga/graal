@@ -196,7 +196,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
             // The cutoff matches the current callee. Does the callsite match?
             if (cutoff.getCallsite() == null) {
                 // The callee is a cutoff that we must force inline from all locations.
-                System.out.println("found cuttoff: "+cutoff.getCallsite().getMethodId());
+                System.out.println("found cuttoff: "+cutoff.getFirst().getMethodId());
                 cutoff.getFirst().setFound();
                 return true;
             } else if (getMethodId(callerScope.method).equals(cutoff.getCallsite().getMethodId())) {
