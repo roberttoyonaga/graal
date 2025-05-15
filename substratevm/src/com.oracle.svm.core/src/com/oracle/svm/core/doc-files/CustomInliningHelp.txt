@@ -41,14 +41,14 @@ See the example below:
 
 {
   "paths":  [
-	{
-	  "path" : ["Ljava/lang/String;charAt(I)", "Ljava/lang/String;isLatin1()"],
-	  "callsite": null
-	},
-	{
-	  "path" :   ["Ljava/lang/String;isLatin1()"],
-	  "callsite": "Ljava/lang/String;indexOf(I)",
-	}
+    {
+      "path": ["Lio/netty/buffer/AbstractByteBufAllocator;toLeakAwareBuffer(Lio/netty/buffer/ByteBuf;)"],
+      "callsite": "Lio/netty/buffer/PooledByteBufAllocator;newDirectBuffer(II)"
+    },
+    {
+      "path": ["Ljava/lang/String;indexOf(I)","Ljava/lang/StringLatin1;indexOf([BIII)"],
+      "callsite": null
+    }
   ],
   "cutoffs": [
     {
