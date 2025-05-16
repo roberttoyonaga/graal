@@ -36,7 +36,6 @@ import jdk.graal.compiler.nodes.ValueNode;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 import com.oracle.svm.hosted.TargetPath;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnalysisGraphDecoderImpl {
@@ -44,24 +43,34 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     public class CustomInlineBeforeAnalysisMethodScope extends InlineBeforeAnalysisGraphDecoder.InlineBeforeAnalysisMethodScope {
         boolean isOnInlinePath;
         boolean isBeyondCutoff;
+        int depth;
 
         CustomInlineBeforeAnalysisMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope, jdk.graal.compiler.nodes.EncodedGraph encodedGraph,
                         com.oracle.graal.pointsto.meta.AnalysisMethod method,
-                        InvokeData invokeData, int inliningDepth, ValueNode[] arguments, boolean isOnInlinePath, boolean isBeyondCutoff) {
+                        InvokeData invokeData, int inliningDepth, ValueNode[] arguments, boolean isOnInlinePath, boolean isBeyondCutoff, int depth) {
             super(targetGraph, caller, callerLoopScope, encodedGraph, method, invokeData, inliningDepth, arguments);
             this.isOnInlinePath = isOnInlinePath;
             this.isBeyondCutoff = isBeyondCutoff;
+            this.depth = depth;
         }
     }
 
     private final List<TargetPath> inlinePaths;
     private final List<TargetPath> cutoffs;
+    // Each index corresponds to a path. Each value is step of the path we've matched up to thus
+    // far.
+    private final int[] pathProgress;
+    // Each index corresponds to a path. Each value is the next depth we should compare method IDs
+    // at.
+    private final int[] pathdepth;
 
     public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, List<TargetPath> paths,
                     List<TargetPath> cutoffs) {
         super(bb, policy, graph, providers);
         this.inlinePaths = paths;
         this.cutoffs = cutoffs;
+        this.pathProgress = new int[inlinePaths.size()];
+        this.pathdepth = new int[inlinePaths.size()];
     }
 
     @Override
@@ -83,6 +92,9 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     /**
      * Determine whether the next callee is on a target callpath. It is possible that the actual
      * path taken overlaps multiple target paths, resulting in a single long inlining chain.
+     *
+     * We do not allow recursion in target paths. The part of the graph we encounter during the DFS
+     * is directed-acyclic.
      */
     private boolean onInlinePath(ResolvedJavaMethod method, PEMethodScope caller) {
         boolean result = false;
@@ -104,67 +116,41 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
             return result;
         }
 
-        // Reconstruct the actual path taken thus far.
-        CustomInlineBeforeAnalysisMethodScope callerScope = cast(caller);
-        List<String> actualPath = new ArrayList<>();
-        while (callerScope != null) {
-            actualPath.addFirst(getMethodId(callerScope.method));
-            callerScope = cast(callerScope.caller);
-        }
-
+        // At this point it is know the callee is not a root.
         // Determine whether the callee is the next step on any target path.
-        for (TargetPath targetPath : inlinePaths) {
-            int nextIdx = comparePaths(targetPath, actualPath);
-            if (nextIdx >= 0) {
-                // Paths match thus far. Now check whether the next step also matches.
-                if (nextIdx < targetPath.size() && targetPath.getMethodId(nextIdx).equals(calleeId)) {
-                    targetPath.setFound(nextIdx);
-                    result = true;
-                }
+        int currentDepth = getDepth(caller);
+        for (int targetPathIdx = 0; targetPathIdx < inlinePaths.size(); targetPathIdx++) {
+            TargetPath targetPath = inlinePaths.get(targetPathIdx);
+            int currentProgressIdx = pathProgress[targetPathIdx];
+            int targetDepth = pathdepth[targetPathIdx];
+
+            // Skip if path is already complete or wrong depth. targetDepth==0 means any depth
+            if (currentProgressIdx == targetPath.size() || (targetDepth != 0 && currentDepth != targetDepth)) {
+                continue;
             }
+
+            // Determine whether the callee matches the next step on this target path.
+            String targetMethodId = targetPath.getMethodId(currentProgressIdx);
+            if (targetMethodId.equals(calleeId)) {
+                // Handle callsites if they exist. Caller is non-null since callee is not a root.
+                if (currentProgressIdx == 0 && targetPath.getCallsite() != null) {
+                    String callerId = getMethodId(cast(caller).method);
+                    String callsiteId = targetPath.getCallsite().getMethodId();
+                    if (!callsiteId.equals(callerId)) {
+                        continue;
+                    }
+                    targetPath.getCallsite().setFound();
+                }
+                targetPath.setFound(currentProgressIdx);
+                pathProgress[targetPathIdx]++;
+                pathdepth[targetPathIdx] = currentDepth + 1;
+                result = true;
+            }
+            // If the current callee does not match, that doesn't necessarily mean we've diverged
+            // from this target path.
+            // There may be other callees at this depth we will evaluate later.
         }
         return result;
-    }
-
-    /**
-     * Returns the next target path index to be compared if the end portion of the actual path
-     * overlaps the front portion of the target path. Otherwise -1. If a target path does not have a
-     * specified callsite, we need to be able to handle them regardless of the depth they are first
-     * encountered at.
-     */
-    private static int comparePaths(TargetPath targetPath, List<String> actualPath) {
-        int targetIdx = 0; // target
-        int actualIdx = 0; // actual
-
-        while (targetIdx < targetPath.size() && actualIdx < actualPath.size()) {
-            if (actualPath.get(actualIdx).equals(targetPath.getMethodId(targetIdx))) {
-                // Steps match between paths. Now account for possible callsites when handling roots
-                if (targetIdx == 0) {
-                    if (targetPath.getCallsite() != null && (actualIdx == 0 || !targetPath.getCallsite().getMethodId().equals(actualPath.get(actualIdx - 1)))) {
-                        // If callsite exists, ensure it matches
-                        actualIdx++;
-                        continue;
-                    } else if (targetPath.getCallsite() == null && actualIdx == 0) {
-                        // If callsite doesn't exist, the roots of the actual path and target path
-                        // should not match.
-                        return -1;
-                    }
-                }
-                actualIdx++;
-                targetIdx++;
-            } else if (targetIdx > 0) {
-                // paths don't match up
-                return -1;
-            } else {
-                /*
-                 * Step forwards through the actual path until we reach a potential start of the
-                 * target path.
-                 */
-                actualIdx++;
-            }
-        }
-        assert targetIdx <= actualIdx;
-        return actualIdx == actualPath.size() ? targetIdx : -1;
     }
 
     /** The cutoff itself also gets inlined. The cutoff should generally be small. */
@@ -220,6 +206,14 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
         return false;
     }
 
+    private static int getDepth(PEMethodScope caller) {
+        if (caller == null) {
+            return 0;
+        }
+        CustomInlineBeforeAnalysisMethodScope callerScope = cast(caller);
+        return callerScope.depth + 1;
+    }
+
     /**
      * Modified from {@linkplain jdk.vm.ci.meta.Signature#toMethodDescriptor()}. The format is:
      * "[fully qualified classname][method name](parameter1type...)" Ex.
@@ -244,7 +238,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
                     int inliningDepth, ValueNode[] arguments) {
         CustomInlineBeforeAnalysisMethodScope scope = new CustomInlineBeforeAnalysisMethodScope(targetGraph, caller, callerLoopScope,
                         encodedGraph, (com.oracle.graal.pointsto.meta.AnalysisMethod) method, invokeData,
-                        inliningDepth, arguments, onInlinePath(method, caller), isBeyondCutoff(method, caller));
+                        inliningDepth, arguments, onInlinePath(method, caller), isBeyondCutoff(method, caller), getDepth(caller));
         return scope;
     }
 }
