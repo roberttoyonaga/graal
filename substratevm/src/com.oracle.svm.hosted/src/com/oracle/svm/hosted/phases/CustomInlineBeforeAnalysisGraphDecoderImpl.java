@@ -30,6 +30,7 @@ import com.oracle.graal.pointsto.BigBang;
 import com.oracle.graal.pointsto.meta.HostedProviders;
 import com.oracle.graal.pointsto.phases.InlineBeforeAnalysisGraphDecoder;
 import com.oracle.graal.pointsto.phases.InlineBeforeAnalysisPolicy;
+import com.oracle.svm.hosted.Cutoff;
 import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.ValueNode;
@@ -56,16 +57,14 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     }
 
     private final List<TargetPath> inlinePaths;
-    private final List<TargetPath> cutoffs;
-    // Each index corresponds to a path. Each value is step of the path we've matched up to thus
-    // far.
+    private final List<Cutoff> cutoffs;
+    // Track how much of each path has been matched. Each value represents the next step to be matched.
     private final int[] pathProgress;
-    // Each index corresponds to a path. Each value is the next depth we should compare method IDs
-    // at.
+    // Each value represents the depth we expect the next match to be at. One value for each path.
     private final int[] pathdepth;
 
     public CustomInlineBeforeAnalysisGraphDecoderImpl(BigBang bb, InlineBeforeAnalysisPolicy policy, StructuredGraph graph, HostedProviders providers, List<TargetPath> paths,
-                    List<TargetPath> cutoffs) {
+                    List<Cutoff> cutoffs) {
         super(bb, policy, graph, providers);
         this.inlinePaths = paths;
         this.cutoffs = cutoffs;
@@ -116,7 +115,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
             return result;
         }
 
-        // At this point it is know the callee is not a root.
+        // At this point it is known the callee is not a root.
         // Determine whether the callee is the next step on any target path.
         int currentDepth = getDepth(caller);
         for (int targetPathIdx = 0; targetPathIdx < inlinePaths.size(); targetPathIdx++) {
@@ -155,17 +154,20 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
 
     /** The cutoff itself also gets inlined. The cutoff should generally be small. */
     private boolean isBeyondCutoff(ResolvedJavaMethod method, PEMethodScope caller) {
+        boolean result = false;
         String calleeId = getMethodId(method);
 
         // First check the special/starting case when root method's scope is being created.
         if (caller == null) {
-            for (TargetPath cutoff : cutoffs) {
+            for (Cutoff cutoff : cutoffs) {
                 if (cutoff.getCallsite() != null && cutoff.getCallsite().getMethodId().equals(calleeId)) {
                     cutoff.getCallsite().setFound();
+                } else if (!cutoff.isInclusive() && calleeId.equals(cutoff.getMethodId())){
+                    cutoff.setFound();
+                    result = true;
                 }
             }
-            // Even if this root method matches a cutoff, there is no caller to inline it into.
-            return false;
+            return result;
         }
 
         // At this point, the callee being evaluated is not a root.
@@ -187,18 +189,18 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
          * At this point, the callee being evaluated is not a root and is not past an encountered
          * cutoff. Determine whether the callee itself is a cutoff.
          */
-        for (TargetPath cutoff : cutoffs) {
-            if (!cutoff.getFirst().getMethodId().equals(calleeId)) {
+        for (Cutoff cutoff : cutoffs) {
+            if (!cutoff.getMethodId().equals(calleeId)) {
                 continue;
             }
             // The cutoff matches the current callee. Does the callsite match?
             if (cutoff.getCallsite() == null) {
                 // The callee is a cutoff that we must force inline from all locations.
-                cutoff.getFirst().setFound();
+                cutoff.setFound();
                 return true;
             } else if (getMethodId(callerScope.method).equals(cutoff.getCallsite().getMethodId())) {
                 // The callee is a cutoff and its caller matches the corresponding target callsite.
-                cutoff.getFirst().setFound();
+                cutoff.setFound();
                 return true;
             }
             // The callsites do not match, continue searching the cutoff list.

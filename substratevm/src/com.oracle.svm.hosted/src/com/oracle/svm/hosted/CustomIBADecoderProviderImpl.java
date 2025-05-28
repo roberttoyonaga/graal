@@ -60,7 +60,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
     private static final String REPORT_PREFIX = "custom_inlining_report_";
     private static final String REPORT_EXTENSION = ".txt";
     private List<TargetPath> targetPaths;
-    private List<TargetPath> cutoffs;
+    private List<Cutoff> cutoffs;
     private String configFileString;
     private boolean strict;
     private boolean debug;
@@ -118,17 +118,40 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         assert pathList != null && pathList.size() > 0;
         for (Object path : pathList) {
             EconomicMap<String, Object> map = ConfigurationParser.asMap(path, "Path object must contain list of Strings and callsite");
-            targetPaths.add(new TargetPath(ConfigurationParser.asList(map.get("path"), " path field should be in a list of Strings"), (String) map.get("callsite")));
+            targetPaths.add(new TargetPath(ConfigurationParser.asList(map.get("path"), " path field should be in a list of Strings"), getStringOrNull("callsite", map)));
         }
     }
 
-    private void parseCutoffs(List<Object> cutoffList) {
+    private void parseCutoffs(List<Object> cutoffList) { // TODO make a new class called Cutoff that has "inclusive" field and a single methodID instead of a list
         // Quick sanity checks
         assert cutoffList != null && cutoffList.size() > 0;
         for (Object path : cutoffList) {
             EconomicMap<String, Object> map = ConfigurationParser.asMap(path, "Path object must contain list of Strings and callsite");
-            cutoffs.add(new TargetPath(ConfigurationParser.asList(map.get("cutoff"), " cutoff field should be in a list containing a single String"), (String) map.get("callsite")));
+            String cutoff = getStringOrNull("cutoff", map);
+            if (cutoff == null) {
+                throw new JsonParserException("cutoff field should be in a list containing a single String ");
+            }
+            cutoffs.add(new Cutoff(cutoff, getStringOrNull("callsite",map), getBooleanOrTrue("inclusive", map)));
         }
+    }
+
+    private static String getStringOrNull(String key, EconomicMap<String, Object> map){
+        Object value = map.get(key);
+        if (value == null){
+            return null;
+        } else if (value instanceof String) {
+            return (String) value;
+        }
+        throw new JsonParserException("Invalid String value '" + value + "' for element '" + key + "'");
+    }
+    private static boolean getBooleanOrTrue(String key, EconomicMap<String, Object> map){
+        Object value = map.get(key);
+        if (value == null){
+            return true;
+        } else if (value instanceof Boolean) {
+            return (boolean) value;
+        }
+        throw new JsonParserException("Invalid boolean value '" + value + "' for element '" + key + "'");
     }
 
     private boolean parseOptions() {
@@ -183,11 +206,11 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
         sb.append(targetPaths.size()).append(" total paths\n\n");
 
         sb.append("The following cutoffs were not found: \n\n");
-        for (TargetPath targetPath : cutoffs) {
-            if (!targetPath.isFound()) {
+        for (Cutoff cutoff : cutoffs) {
+            if (!cutoff.isFound()) {
                 sb.append("----------------------\n");
-                sb.append(targetPath).append("\n\n");
-                sb.append(">>> Divergence point: ").append(targetPath.getDivergencePoint()).append("\n\n");
+                sb.append(cutoff).append("\n\n");
+                sb.append(">>> Divergence point: ").append(cutoff.getDivergencePoint()).append("\n\n");
             }
         }
 
