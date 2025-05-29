@@ -27,16 +27,25 @@
 package com.oracle.svm.hosted;
 
 public class Cutoff {
+
+    // Something large as a default.
+    private static final int CUTOFF_DEPTH_THRESHOLD = 100;
     // This may be null or a specific method ID. If null, inline at all callsites.
     TargetMethod cutoff;
     TargetMethod callsiteId;
+    int depthLimit;
 
     boolean inclusive;
 
-    public Cutoff(String cutoff, String callsiteId, boolean inclusive) {
+    public Cutoff(String cutoff, String callsiteId, boolean inclusive, int depthLimit) {
         this.cutoff = new TargetMethod(cutoff);
         this.callsiteId = callsiteId == null ? null : new TargetMethod(callsiteId);
         this.inclusive = inclusive;
+        if (depthLimit < 0){
+            this.depthLimit = CUTOFF_DEPTH_THRESHOLD;
+        } else {
+            this.depthLimit = depthLimit;
+        }
     }
 
     /**
@@ -61,6 +70,7 @@ public class Cutoff {
         return null;
     }
     public boolean isInclusive() {return inclusive;}
+    public int getDepthLimit() {return depthLimit;}
 
     public TargetMethod getCallsite() {
         return callsiteId;

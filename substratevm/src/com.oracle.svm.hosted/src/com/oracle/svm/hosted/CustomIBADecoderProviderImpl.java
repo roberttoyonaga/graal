@@ -131,7 +131,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
             if (cutoff == null) {
                 throw new JsonParserException("cutoff field should be in a list containing a single String ");
             }
-            cutoffs.add(new Cutoff(cutoff, getStringOrNull("callsite",map), getBooleanOrTrue("inclusive", map)));
+            cutoffs.add(new Cutoff(cutoff, getStringOrNull("callsite",map), getBooleanOrTrue("inclusive", map), getIntOrNegative("depthLimit", map)));
         }
     }
 
@@ -152,6 +152,17 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
             return (boolean) value;
         }
         throw new JsonParserException("Invalid boolean value '" + value + "' for element '" + key + "'");
+    }
+
+    protected static int getIntOrNegative(String key, EconomicMap<String, Object> map) {
+        Object value = map.get(key);
+        if (value == null) {
+            return -1;
+        }
+        if (value instanceof Long || value instanceof Integer) {
+            return (int) value;
+        }
+        throw new JsonParserException("Invalid long value '" + value + "' for element '" + key + "'");
     }
 
     private boolean parseOptions() {
@@ -213,6 +224,7 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
                 sb.append(">>> Divergence point: ").append(cutoff.getDivergencePoint()).append("\n\n");
             }
         }
+        sb.append(cutoffs.size()).append(" total cutoffs.\n\n");
 
         // Only write to output if in debug mode.
         if (debug) {

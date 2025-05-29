@@ -43,16 +43,16 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
 
     public class CustomInlineBeforeAnalysisMethodScope extends InlineBeforeAnalysisGraphDecoder.InlineBeforeAnalysisMethodScope {
         boolean isOnInlinePath;
-        boolean isBeyondCutoff;
+        int cutoffDepthBudget;
         int depth;
 
         CustomInlineBeforeAnalysisMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope, jdk.graal.compiler.nodes.EncodedGraph encodedGraph,
                         com.oracle.graal.pointsto.meta.AnalysisMethod method,
-                        InvokeData invokeData, int inliningDepth, ValueNode[] arguments, boolean isOnInlinePath, boolean isBeyondCutoff, int depth) {
+                        InvokeData invokeData, int inliningDepth, ValueNode[] arguments, boolean isOnInlinePath, int depth, int cutoffDepthBudget) {
             super(targetGraph, caller, callerLoopScope, encodedGraph, method, invokeData, inliningDepth, arguments);
             this.isOnInlinePath = isOnInlinePath;
-            this.isBeyondCutoff = isBeyondCutoff;
             this.depth = depth;
+            this.cutoffDepthBudget = cutoffDepthBudget;
         }
     }
 
@@ -75,14 +75,31 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     @Override
     protected void maybeAbortInlining(MethodScope ms, @SuppressWarnings("unused") LoopScope loopScope, Node node) {
         CustomInlineBeforeAnalysisMethodScope methodScope = cast(ms);
-        if (methodScope.isOnInlinePath || methodScope.isBeyondCutoff) {
+        if (methodScope.isOnInlinePath || (methodScope.cutoffDepthBudget > 0)) {
+//        if (methodScope.isOnInlinePath) {
             // If the caller scope should be force inlined, do not abort.
             // We are evaluating whether the caller should be inlined by checking its callees.
             // Similar to the alwaysInlineInvoke check, we do not update the accumulative counters.
             return;
         }
+//        if (!methodScope.isInliningAborted() && methodScope.isInlinedMethod()) {
+//            if (graph.getDebug().isLogEnabled()) {
+//                graph.getDebug().logv("  ".repeat(methodScope.inliningDepth) + "  node " + node + ": " + methodScope.policyScope);
+//            }
+//            com.oracle.svm.hosted.phases.InlineBeforeAnalysisPolicyUtils.AccumulativeInlineScope policyScope = (com.oracle.svm.hosted.phases.InlineBeforeAnalysisPolicyUtils.AccumulativeInlineScope) methodScope.policyScope;
+//            if (!policyScope.processNode(bb.getMetaAccess(), (com.oracle.graal.pointsto.meta.AnalysisMethod) methodScope.method, node, methodScope.cutoffDepthBudget > 0 ? 2: 0,  methodScope.cutoffDepthBudget > 0 ? 200 : 0)) {
+//                abortInlining(methodScope);
+//            }
+//        }
         super.maybeAbortInlining(ms, loopScope, node);
     }
+
+    //TODO we can't just swap out the AbstractPolicyScope type becuase you need the stateful data from inliningUtils in order to create a new scope.
+    // So basically you need to change things at the  InliningUtils level, not the AbstractPolicyScope level
+//    @Override
+//    protected InlineBeforeAnalysisPolicy.AbstractPolicyScope openCalleeScope(InlineBeforeAnalysisPolicy.AbstractPolicyScope outer, com.oracle.graal.pointsto.meta.AnalysisMethod caller, com.oracle.graal.pointsto.meta.AnalysisMethod method) {
+//        return inliningUtils.createAccumulativeInlineScope((InlineBeforeAnalysisPolicyUtils.AccumulativeInlineScope) outer, caller, method, (ignore) -> false);
+//    }
 
     protected static CustomInlineBeforeAnalysisMethodScope cast(MethodScope methodScope) {
         return (CustomInlineBeforeAnalysisMethodScope) methodScope;
@@ -153,8 +170,8 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
     }
 
     /** The cutoff itself also gets inlined. The cutoff should generally be small. */
-    private boolean isBeyondCutoff(ResolvedJavaMethod method, PEMethodScope caller) {
-        boolean result = false;
+    private int getCutoffDepthBudget(ResolvedJavaMethod method, PEMethodScope caller) {
+        int result = -1;
         String calleeId = getMethodId(method);
 
         // First check the special/starting case when root method's scope is being created.
@@ -164,7 +181,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
                     cutoff.getCallsite().setFound();
                 } else if (!cutoff.isInclusive() && calleeId.equals(cutoff.getMethodId())){
                     cutoff.setFound();
-                    result = true;
+                    result = cutoff.getDepthLimit();
                 }
             }
             return result;
@@ -174,7 +191,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
         CustomInlineBeforeAnalysisMethodScope callerScope = cast(caller);
 
         // All methods transitively called after the cutoff (inclusive) are force inlined.
-        if (callerScope.isBeyondCutoff) {
+        if (callerScope.cutoffDepthBudget > 0) {
             // TODO maybe allow for node size threshold conditions
             // The problem is, unlike the IAA stage, we don't have the decoded graph yet.
             // So we need to visit all the callees to determine the number of invokes and nodes
@@ -182,7 +199,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
             // The best solution is to change createAccumulativeInlineScope to accept thresholds
             // based on whether the scope is a cutoff.
             // But that requires invasive changes.
-            return true;
+            return callerScope.cutoffDepthBudget - 1;
         }
 
         /*
@@ -197,15 +214,15 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
             if (cutoff.getCallsite() == null) {
                 // The callee is a cutoff that we must force inline from all locations.
                 cutoff.setFound();
-                return true;
+                return cutoff.getDepthLimit();
             } else if (getMethodId(callerScope.method).equals(cutoff.getCallsite().getMethodId())) {
                 // The callee is a cutoff and its caller matches the corresponding target callsite.
                 cutoff.setFound();
-                return true;
+                return cutoff.getDepthLimit();
             }
             // The callsites do not match, continue searching the cutoff list.
         }
-        return false;
+        return 0;
     }
 
     private static int getDepth(PEMethodScope caller) {
@@ -240,7 +257,7 @@ public class CustomInlineBeforeAnalysisGraphDecoderImpl extends InlineBeforeAnal
                     int inliningDepth, ValueNode[] arguments) {
         CustomInlineBeforeAnalysisMethodScope scope = new CustomInlineBeforeAnalysisMethodScope(targetGraph, caller, callerLoopScope,
                         encodedGraph, (com.oracle.graal.pointsto.meta.AnalysisMethod) method, invokeData,
-                        inliningDepth, arguments, onInlinePath(method, caller), isBeyondCutoff(method, caller), getDepth(caller));
+                        inliningDepth, arguments, onInlinePath(method, caller), getDepth(caller), getCutoffDepthBudget(method, caller));
         return scope;
     }
 }
