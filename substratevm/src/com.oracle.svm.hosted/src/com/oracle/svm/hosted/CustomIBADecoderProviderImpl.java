@@ -131,7 +131,12 @@ public class CustomIBADecoderProviderImpl implements IBADecoderProvider {
             if (cutoff == null) {
                 throw new JsonParserException("cutoff field should be in a list containing a single String ");
             }
-            cutoffs.add(new Cutoff(cutoff, getStringOrNull("callsite",map), getBooleanOrTrue("inclusive", map), getIntOrNegative("depthLimit", map)));
+            String callsite = getStringOrNull("callsite",map);
+            boolean inclusive = getBooleanOrTrue("inclusive", map);
+            if (callsite != null && !inclusive) {
+                throw new JsonParserException("Only inclusive cutoffs can have callsites.");
+            }
+            cutoffs.add(new Cutoff(cutoff, callsite, inclusive, getIntOrNegative("depthLimit", map)));
         }
     }
 
