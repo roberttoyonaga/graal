@@ -49,9 +49,9 @@ public class TestGrowableWordArrayQuickSort {
         GrowableWordArrayAccess.add(gwa, WordFactory.unsigned(4), NmtCategory.JFR);
         GrowableWordArrayAccess.add(gwa, WordFactory.unsigned(2), NmtCategory.JFR);
         GrowableWordArrayAccess.add(gwa, WordFactory.unsigned(4), NmtCategory.JFR);
-        GrowableWordArrayAccess.qsort(gwa, 0, gwa.getSize()-1, TestGrowableWordArrayQuickSort::compare);
+        GrowableWordArrayAccess.qsort(gwa, 0, gwa.getSize() - 1, TestGrowableWordArrayQuickSort::compare);
         long last = 0;
-        for (int i = 0; i < gwa.getSize(); i ++){
+        for (int i = 0; i < gwa.getSize(); i++) {
             long current = GrowableWordArrayAccess.read(gwa, i).rawValue();
             assertTrue(last <= current);
             last = current;
@@ -61,7 +61,7 @@ public class TestGrowableWordArrayQuickSort {
     static int compare(Word a, Word b) {
         if (a.rawValue() < b.rawValue()) {
             return -1;
-        } else if (a.rawValue() == b.rawValue()){
+        } else if (a.rawValue() == b.rawValue()) {
             return 0;
         } else {
             return 1;
