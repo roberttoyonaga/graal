@@ -420,8 +420,6 @@ class PosixJfrEmergencyDumpFeature extends JfrEmergencyDumpFeature {
 
     @Override
     public void afterRegistration(AfterRegistrationAccess access) {
-        PosixJfrEmergencyDumpSupport support = new PosixJfrEmergencyDumpSupport();
-        ImageSingletons.add(JfrEmergencyDumpSupport.class, support);
-        ImageSingletons.add(PosixJfrEmergencyDumpSupport.class, support);
+        ImageSingletons.add(JfrEmergencyDumpSupport.class, new PosixJfrEmergencyDumpSupport());
     }
 }
