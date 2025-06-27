@@ -747,7 +747,8 @@ public class SubstrateJVM {
         if (!recording) {
             return;
         }
-        emitOldObjectSamples(Long.MAX_VALUE, false, false);
+        // Hotspot emits GC root paths, but we don't support that yet. So cutoff = 0.
+        emitOldObjectSamples(0, false, false);
         DumpReasonEvent.emit("Out of Memory", -1);
         JfrChunkWriter chunkWriter = unlockedChunkWriter.lock();
         try {
