@@ -38,6 +38,7 @@ import com.oracle.svm.core.heap.RestrictHeapAccess;
 import com.oracle.svm.core.heap.VMOperationInfos;
 import com.oracle.svm.core.hub.DynamicHub;
 import com.oracle.svm.core.jfr.events.JfrAllocationEvents;
+import com.oracle.svm.core.jfr.events.DumpReasonEvent;
 import com.oracle.svm.core.jfr.logging.JfrLogging;
 import com.oracle.svm.core.jfr.oldobject.JfrOldObjectProfiler;
 import com.oracle.svm.core.jfr.oldobject.JfrOldObjectRepository;
@@ -747,6 +748,7 @@ public class SubstrateJVM {
             return;
         }
         emitOldObjectSamples(Long.MAX_VALUE, false, false);
+        DumpReasonEvent.emit("Out of Memory", -1);
         JfrChunkWriter chunkWriter = unlockedChunkWriter.lock();
         try {
             boolean existingFile = chunkWriter.hasOpenFile();

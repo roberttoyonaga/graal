@@ -227,7 +227,7 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
     static int compare(Word a, Word b) {
         CCharPointer filenameA = (CCharPointer) a;
         CCharPointer filenameB = (CCharPointer) b;
-        int cmp = LibC.strncmp(filenameA, filenameB, WordFactory.unsigned(ISO8601_LEN));
+        int cmp = LibC.strncmp(filenameA, filenameB, WordFactory.unsigned(ISO_8601_LEN));
         if (cmp == 0) {
             CCharPointer aDot = SubstrateUtil.strchr(filenameA, DOT);
             CCharPointer bDot = SubstrateUtil.strchr(filenameB, DOT);
