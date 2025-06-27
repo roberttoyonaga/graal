@@ -70,7 +70,7 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
     @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-26+2/src/hotspot/os/posix/include/jvm_md.h#L57") //
     private static final int JVM_MAXPATHLEN = 4096;
     @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-26+2/src/hotspot/share/jfr/recorder/repository/jfrEmergencyDump.cpp#L47") //
-    private static int ISO8601_LEN = 19;
+    private static final int ISO_8601_LEN = 19;
     private static final byte FILE_SEPARATOR = "/".getBytes(StandardCharsets.UTF_8)[0];
     private static final byte DOT = ".".getBytes(StandardCharsets.UTF_8)[0];
     // It does not really matter what the name is.
@@ -307,7 +307,7 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
 
     /**
      * See
-     * {@link com.oracle.svm.core.posix.jvmstat.PosixPerfMemoryProvider#restartableOpen(CCharPointer, int, int)}
+     * {@link com.oracle.svm.core.posix.jvmstat.PosixPerfMemoryProvider#restartableOpen(CCharPointer, int, int)}.
      */
     @Uninterruptible(reason = "LibC.errno() must not be overwritten accidentally.")
     private static int restartableOpen(CCharPointer directory, int flags, int mode) {
@@ -363,8 +363,6 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
 
         clearPathBuffer();
 
-        // TODO HS uses _path_buffer_file_name_offset to avoid building this part of th path each
-        // time.
         // Cached in RepositoryIterator::RepositoryIterator and used in fully_qualified
         idx = writeToPathBuffer(repositoryLocationBytes, idx);
 

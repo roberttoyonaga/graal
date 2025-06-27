@@ -27,8 +27,6 @@ package com.oracle.svm.core.jfr;
 import static com.oracle.svm.core.jfr.JfrThreadLocal.getJavaBufferList;
 import static com.oracle.svm.core.jfr.JfrThreadLocal.getNativeBufferList;
 
-import java.nio.charset.StandardCharsets;
-
 import com.oracle.svm.core.jfr.oldobject.JfrOldObjectRepository;
 import com.oracle.svm.core.nmt.NmtCategory;
 import jdk.graal.compiler.word.Word;

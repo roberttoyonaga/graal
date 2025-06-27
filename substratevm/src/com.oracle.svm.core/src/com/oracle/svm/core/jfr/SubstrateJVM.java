@@ -24,7 +24,6 @@
  */
 package com.oracle.svm.core.jfr;
 
-import java.util.Arrays;
 import java.util.List;
 
 import com.oracle.svm.core.os.RawFileOperationSupport;
@@ -35,7 +34,6 @@ import org.graalvm.nativeimage.Platforms;
 import org.graalvm.word.Pointer;
 
 import com.oracle.svm.core.Uninterruptible;
-import com.oracle.svm.core.heap.Heap;
 import com.oracle.svm.core.heap.RestrictHeapAccess;
 import com.oracle.svm.core.heap.VMOperationInfos;
 import com.oracle.svm.core.hub.DynamicHub;
@@ -742,12 +740,13 @@ public class SubstrateJVM {
         return DynamicHub.fromClass(eventClass).getJfrEventConfiguration();
     }
 
-    /** See JfrRecorderService::vm_error_rotation */
+    /** See JfrRecorderService::vm_error_rotation. */
     @RestrictHeapAccess(access = RestrictHeapAccess.Access.NO_ALLOCATION, reason = "Used on OOME for emergency dumps")
     public void vmErrorRotation() {
         if (!recording) {
             return;
         }
+        emitOldObjectSamples(Long.MAX_VALUE, false, false);
         JfrChunkWriter chunkWriter = unlockedChunkWriter.lock();
         try {
             boolean existingFile = chunkWriter.hasOpenFile();
@@ -800,7 +799,6 @@ public class SubstrateJVM {
             if (!SubstrateJVM.get().recording) {
                 return;
             }
-
             SubstrateJVM.get().recording = false;
             JfrExecutionSampler.singleton().update();
 

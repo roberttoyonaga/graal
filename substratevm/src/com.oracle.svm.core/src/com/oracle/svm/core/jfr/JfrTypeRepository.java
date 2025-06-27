@@ -64,10 +64,11 @@ public class JfrTypeRepository implements JfrRepository {
     private final JfrClassLoaderInfoTable flushedClassLoaders;
     private final TypeInfo typeInfo;
 
-    // epochTypeData tables are written to from threads emitting events and read from the
-    // flushing/rotating thread
-    // Their purpose is to lazily collect tagged JFR classes, which may later be serialized during
-    // flush/rotation.
+    /*
+     * epochTypeData tables are written to from threads emitting events and read from the
+     * flushing/rotating thread Their purpose is to lazily collect tagged JFR classes, which may
+     * later be serialized during flush/rotation.
+     */
     private final JfrClassInfoTable epochTypeData0;
     private final JfrClassInfoTable epochTypeData1;
 
@@ -155,8 +156,10 @@ public class JfrTypeRepository implements JfrRepository {
                 Class<?> clazz = entry.getInstance();
                 assert DynamicHub.fromClass(clazz).isLoaded();
                 if (flushpoint) {
-                    // Still must check the bit is set since we don't clear the epoch data tables
-                    // until safepoint.
+                    /*
+                     * Must check the bit is set since we don't clear the epoch data tables until
+                     * safepoint.
+                     */
                     if (JfrTraceId.isUsedCurrentEpoch(clazz)) {
                         visitClass(typeInfo, clazz);
                     }
@@ -395,9 +398,8 @@ public class JfrTypeRepository implements JfrRepository {
         packageInfoRaw.setId(++currentPackageId);
         packageInfoRaw.setHasModule(hasModule);
         packageInfoRaw.setModuleName(moduleName);
-        assert !typeInfo.packages.contains(packageInfoRaw); // *** remove later
-        typeInfo.packages.putNew(packageInfoRaw); // *** Do not free the buffer. A pointer to it is
-                                                  // shallow copied into the hash map.
+        typeInfo.packages.putNew(packageInfoRaw);
+        // Do not free the buffer. A pointer to it is shallow copied into the hash map.
         assert typeInfo.packages.contains(packageInfoRaw);
         return true;
     }
@@ -715,7 +717,7 @@ public class JfrTypeRepository implements JfrRepository {
 
     private final class JfrClassInfoTable extends JfrTypeInfoTable {
         @Platforms(Platform.HOSTED_ONLY.class)
-        public JfrClassInfoTable() {
+        JfrClassInfoTable() {
             super(NmtCategory.JFR);
         }
 

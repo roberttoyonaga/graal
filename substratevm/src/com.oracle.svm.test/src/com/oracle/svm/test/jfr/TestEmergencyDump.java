@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2021, 2022, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2021, 2022, Red Hat Inc. All rights reserved.
+ * Copyright (c) 2025, 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025, 2025, Red Hat Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -93,5 +93,17 @@ public class TestEmergencyDump extends JfrRecordingTest {
         assertEquals(0, expectedStrings.size());
 
         Files.deleteIfExists(p);
+
+        /*
+         * This flushes any in-flight data that may have been recorded after the emergency dump but
+         * before the previous recording was stopped. The emergency dump does not bother to clean up
+         * this data but this test cannot allow that data to pollute subsequent tests. Starting a
+         * new recording forces a new chunkfile to be created. When the new recording ends, the in
+         * flight data is flushed to the new chunk file.
+         */
+        Recording cleanup = new Recording();
+        cleanup.start();
+        cleanup.stop();
+        cleanup.close();
     }
 }
