@@ -24,6 +24,7 @@
  */
 package com.oracle.svm.hosted.code;
 
+import java.util.PriorityQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
