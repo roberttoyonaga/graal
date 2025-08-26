@@ -27,17 +27,22 @@ package com.oracle.svm.hosted.code;
 import static com.oracle.svm.hosted.code.SubstrateCompilationDirectives.DEOPT_TARGET_METHOD;
 
 import java.lang.annotation.Annotation;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.PriorityQueue;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import com.oracle.graal.pointsto.phases.InlineBeforeAnalysisGraphDecoder;
+import jdk.graal.compiler.nodes.GraphDecoder;
 import org.graalvm.nativeimage.ImageSingletons;
 
 import com.oracle.graal.pointsto.api.PointstoOptions;
@@ -206,6 +211,7 @@ public class CompileQueue {
     }
 
     private final ConcurrentMap<HostedMethod, UnpublishedTrivialMethods> unpublishedTrivialMethods = new ConcurrentHashMap<>();
+    private final ConcurrentMap<HostedMethod, UnpublishedTrivialMethods> unpublishedNonTrivialMethods = new ConcurrentHashMap<>();
 
     private final LayeredDispatchTableFeature layeredDispatchTableSupport = ImageLayerBuildingSupport.buildingSharedLayer() ? LayeredDispatchTableFeature.singleton() : null;
 
@@ -366,6 +372,27 @@ public class CompileQueue {
         }
     }
 
+    protected class NonTrivialInlineTask implements Task {
+
+        private final HostedMethod method;
+        private final Description description;
+
+        NonTrivialInlineTask(HostedMethod method) {
+            this.method = method;
+            this.description = new Description(method, method.getName());
+        }
+
+        @Override
+        public void run(DebugContext debug) {
+            doInlineNonTrivial(debug, method);
+        }
+
+        @Override
+        public Description getDescription() {
+            return description;
+        }
+    }
+
     public class ParseTask implements Task {
 
         protected final CompileReason reason;
@@ -455,6 +482,9 @@ public class CompileQueue {
             }
             try (ProgressReporter.ReporterClosable _ = reporter.printInlining()) {
                 inlineTrivialMethods(debug);
+            }
+            try (ProgressReporter.ReporterClosable ac = reporter.printNonTrivialInlining()) {
+                inlineNonTrivialMethods(debug);
             }
             if (ImageSingletons.contains(HostedHeapDumpFeature.class)) {
                 ImageSingletons.lookup(HostedHeapDumpFeature.class).afterInlining();
@@ -782,6 +812,40 @@ public class CompileQueue {
         } while (inliningProgress);
     }
 
+    @SuppressWarnings("try")
+    protected void inlineNonTrivialMethods(DebugContext debug) throws InterruptedException {
+        int round = 0;
+        do {
+            ProgressReporter.singleton().reportStageProgress();
+            inliningProgress = false;
+            round++;
+            System.out.println("\n==== Non-Trivial Inlining  round " + round);
+            try (Indent ignored = debug.logAndIndent("==== Non-Trivial Inlining  round %d%n", round)) {
+                runOnExecutor(() -> {
+                    universe.getMethods().forEach(method -> {
+                        assert method.isOriginalMethod();
+                        for (MultiMethod multiMethod : method.getAllMultiMethods()) {
+                            HostedMethod hMethod = (HostedMethod) multiMethod;
+                            if (hMethod.compilationInfo.getCompilationGraph() != null) {
+                                executor.execute(new NonTrivialInlineTask(hMethod));
+                            }
+                        }
+                    });
+                });
+            }
+            // *** we still need to publish modified graphs
+            for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedNonTrivialMethods.entrySet()) {
+                entry.getKey().compilationInfo.setCompilationGraph(entry.getValue().unpublishedGraph);
+                // *** Previously, we only needed more rounds if inlining callees produced trivial methods. Now we need to do more rounds as long as inlining happened.
+//                if (entry.getValue().newlyTrivial) {
+                inliningProgress = true;
+//                    entry.getKey().compilationInfo.setTrivialMethod();
+//                }
+            }
+            unpublishedNonTrivialMethods.clear();
+        } while (inliningProgress);
+    }
+
     class TrivialInliningPlugin implements InlineInvokePlugin {
 
         boolean inlinedDuringDecoding;
@@ -789,6 +853,25 @@ public class CompileQueue {
         @Override
         public InlineInfo shouldInlineInvoke(GraphBuilderContext b, ResolvedJavaMethod method, ValueNode[] args) {
             if (makeInlineDecision((HostedMethod) b.getMethod(), (HostedMethod) method) && b.recursiveInliningDepth(method) == 0) {
+                return InlineInfo.createStandardInlineInfo(method);
+            } else {
+                return InlineInfo.DO_NOT_INLINE_WITH_EXCEPTION;
+            }
+        }
+
+        @Override
+        public void notifyAfterInline(ResolvedJavaMethod methodToInline) {
+            inlinedDuringDecoding = true;
+        }
+    }
+
+    class NonTrivialInliningPlugin implements InlineInvokePlugin {
+
+        boolean inlinedDuringDecoding;
+
+        @Override
+        public InlineInfo shouldInlineInvoke(GraphBuilderContext b, ResolvedJavaMethod method, ValueNode[] args) {
+            if (makeNonTrivialInlineDecision((HostedMethod) b.getMethod(), (HostedMethod) method, b) && b.recursiveInliningDepth(method) == 0) {
                 return InlineInfo.createStandardInlineInfo(method);
             } else {
                 return InlineInfo.DO_NOT_INLINE_WITH_EXCEPTION;
@@ -822,6 +905,196 @@ public class CompileQueue {
         }
     }
 
+    class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
+        int canImproveStamps;
+        int cantImproveStamps;
+        boolean inlinedDuringDecoding;
+        NonTrivialInliningGraphDecoder(StructuredGraph graph, Providers providers, NonTrivialInliningPlugin inliningPlugin) {
+            super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, null,
+                            null,
+                            new InlineInvokePlugin[]{inliningPlugin},
+                            null, null, null, null,
+                            new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
+        }
+
+        @Override
+        protected EncodedGraph lookupEncodedGraph(ResolvedJavaMethod method, BytecodeProvider intrinsicBytecodeProvider) {
+            return ((HostedMethod) method).compilationInfo.getCompilationGraph().getEncodedGraph();
+        }
+
+        @Override
+        protected LoopScope trySimplifyInvoke(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, MethodCallTargetNode callTarget) {
+            return super.trySimplifyInvoke(methodScope, loopScope, invokeData, callTarget);
+        }
+
+        /** This method is partially based on HostedInliningPhase#enhanceParameters. */
+        @Override
+        protected boolean canImproveStamps(InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments) {
+            int count = 0;
+            // TODO HostedInliningPhase#enhanceParameters is using the graph of the invoke. do we need to copy the graph? See exploreAndPrepareGraph [we cant just look up the graph here bc its encoded].
+            //  To mimic it exactly I think you'd need to decode before continuing
+            ResolvedJavaMethod inlineMethod = inlineInfo.getMethodToInline();
+
+        /*
+        EncodedGraph graphToInline = lookupEncodedGraph(inlineMethod, inlineInfo.getIntrinsicBytecodeProvider());
+        if (graphToInline == null) {
+            return false;
+        }
+        */
+
+            jdk.graal.compiler.core.common.type.Stamp[] paramStamps = jdk.graal.compiler.core.common.type.StampFactory.createParameterStamps(graph.getAssumptions(), inlineMethod);
+            assert paramStamps.length == arguments.length : "Invoke arguments and parameters have different counts";
+            for (int i = 0; i < paramStamps.length; i++) {
+
+                jdk.graal.compiler.core.common.type.Stamp argStamp = arguments[i].stamp(jdk.graal.compiler.nodes.NodeView.DEFAULT);
+                ValueNode actualParameter = arguments[i];
+                try {
+                    if (actualParameter.isConstant()) {
+                        // *** don't need to actually change the graph yet.
+                        //jdk.graal.compiler.nodes.ConstantNode constant = (jdk.graal.compiler.nodes.ConstantNode) actualParameter.copyWithInputs(false);
+                        //jdk.graal.compiler.nodes.ConstantNode uniqueConstant = graph.unique(constant); //TODO graph
+                        // The source position comes from the containing graph so it's not valid in the
+                        // context of this graph.
+                        //uniqueConstant.clearNodeSourcePosition();
+                        //formalParameter.replaceAndDelete(uniqueConstant);
+                        //enqueueUsages(canonicalizableNodes, uniqueConstant);
+                        count++;
+                    } else {
+                        jdk.graal.compiler.core.common.type.Stamp originalStamp = paramStamps[i];
+                        jdk.graal.compiler.core.common.type.Stamp improvedStamp = originalStamp.tryImproveWith(argStamp);
+
+                        if (improvedStamp != null) {
+                            if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug
+                                System.out.println("----Improved: " + originalStamp + " " + improvedStamp);
+                            }
+                            count++;
+                            assert !originalStamp.equals(improvedStamp);
+                            assert originalStamp.tryImproveWith(improvedStamp) != null;
+                            //formalParameter.setStamp(improvedStamp); // *** don't actually change the stamp
+                            //enqueueUsages(canonicalizableNodes, formalParameter);
+                        }
+                    }
+                } catch (java.lang.ClassCastException e) {// todo this is a hack
+//                    throw new RuntimeException( paramStamps[i]+ " " + argStamp+" ||| " + e.getMessage() ); // java.lang.Object  vs i64 Why?
+                    cantImproveStamps++;
+                    return false;
+                }
+            }
+            if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug
+                System.out.println("----Number of params improved:" + count);
+            }
+            //  in order to get all usages, we need the actual ParameterNode object, not just the parameter stamps.
+            if (count >0){
+                canImproveStamps++;
+            } else {
+                cantImproveStamps++;
+            }
+            return count > 0;
+        }
+
+        boolean canInline(double benefit, double cost, double callerCost, HostedMethod caller, HostedMethod inlineMethod) {
+            double bc = benefit/cost;
+            double t1 = 0.005;
+            double t2 = 1;// Paper uses 120// 10; this casts a wider net  //1; this works well with SimpleInline3 //120; This is what the paper uses
+            double threshold = t1 * Math.pow(2, ( (callerCost + cost)/(16 * t2)) );
+            if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug
+                System.out.println("-----finishInlining ||| Caller: " + caller + " Callee: methodToBeInlined |||  calleeBenefit:"+ benefit + " calleeCost:"+ cost + " callerCost:"+ callerCost+ " Threshold:" +threshold);
+            }
+            return bc >= threshold;
+        }
+
+        @Override
+        protected void finishInlining(MethodScope is) {
+            PEMethodScope inlineScope = (PEMethodScope) is;
+            PEMethodScope callerScope = inlineScope.caller;
+            ResolvedJavaMethod inlineMethod = inlineScope.method;
+            LoopScope callerLoopScope = inlineScope.callerLoopScope;
+            InvokeData invokeData = inlineScope.invokeData;
+
+            if (!canInline(inlineScope.benefit, inlineScope.cost, callerScope.cost, (HostedMethod) callerScope.method, (HostedMethod) inlineMethod)){
+
+                // This block is essentially the same as InlineBeforeAnalysisGraphDecoder#finishInlining
+                if (invokeData.invokePredecessor.next() != null) {
+                    if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug [seems to work]
+                        System.out.println("-----finishInlining ||| Caller: " + callerScope.method.getName() + " Callee: methodToBeInlined ****** killing CFN ****** ");
+                    }
+                    killControlFlowNodes(inlineScope, invokeData.invokePredecessor.next());
+                    assert invokeData.invokePredecessor.next() == null : "Successor must have been a fixed node created in the aborted scope, which is deleted now";
+                }
+                invokeData.invokePredecessor.setNext(invokeData.invoke.asFixedNode());
+                if (inlineScope.exceptionPlaceholderNode != null) {
+                    assert invokeData.invoke instanceof jdk.graal.compiler.nodes.InvokeWithExceptionNode : invokeData.invoke;
+                    assert lookupNode(callerLoopScope, invokeData.exceptionOrderId) == inlineScope.exceptionPlaceholderNode : inlineScope;
+                    registerNode(callerLoopScope, invokeData.exceptionOrderId, null, true, true);
+                    ValueNode exceptionReplacement = makeStubNode(callerScope, callerLoopScope, invokeData.exceptionOrderId);
+                    inlineScope.exceptionPlaceholderNode.replaceAtUsagesAndDelete(exceptionReplacement);
+                }
+                handleNonInlinedInvoke(callerScope, callerLoopScope, invokeData);
+                return;
+            }
+            inlinedDuringDecoding = true;
+            super.finishInlining(inlineScope);
+        }
+
+        // Directly copied from IBA decoder
+        private void killControlFlowNodes(PEMethodScope inlineScope, jdk.graal.compiler.nodes.FixedNode start) {
+            Deque<Node> workList = null;
+            Node cur = start;
+            while (true) {
+                assert !cur.isDeleted() : cur;
+                assert graph.isNew(inlineScope.methodStartMark, cur) : cur;
+
+                Node next = null;
+                if (cur instanceof jdk.graal.compiler.nodes.FixedWithNextNode) {
+                    next = ((jdk.graal.compiler.nodes.FixedWithNextNode) cur).next();
+                } else if (cur instanceof jdk.graal.compiler.nodes.ControlSplitNode) {
+                    for (Node successor : cur.successors()) {
+                        if (next == null) {
+                            next = successor;
+                        } else {
+                            if (workList == null) {
+                                workList = new ArrayDeque<>();
+                            }
+                            workList.push(successor);
+                        }
+                    }
+                } else if (cur instanceof jdk.graal.compiler.nodes.AbstractEndNode) {
+                    next = ((jdk.graal.compiler.nodes.AbstractEndNode) cur).merge();
+                } else if (cur instanceof jdk.graal.compiler.nodes.ControlSinkNode) {
+                    /* End of this control flow path. */
+                } else {
+                    throw GraalError.shouldNotReachHereUnexpectedValue(cur); // ExcludeFromJacocoGeneratedReport
+                }
+
+                if (cur instanceof jdk.graal.compiler.nodes.AbstractMergeNode) {
+                    for (ValueNode phi : ((jdk.graal.compiler.nodes.AbstractMergeNode) cur).phis().snapshot()) {
+                        phi.replaceAtUsages(null);
+                        phi.safeDelete();
+                    }
+                }
+
+                cur.replaceAtPredecessor(null);
+                cur.replaceAtUsages(null);
+                cur.safeDelete();
+
+                if (next != null) {
+                    cur = next;
+                } else if (workList != null && !workList.isEmpty()) {
+                    cur = workList.pop();
+                } else {
+                    return;
+                }
+            }
+        }
+
+        protected void registerNode(GraphDecoder.LoopScope loopScope, int nodeOrderId, Node node, boolean allowOverwrite, boolean allowNull){
+            if (node != null && node.isAlive()) {
+                loopScope.methodScope.cost += node.estimatedNodeSize().value; // Method scope should be the callee the loop belongs to
+            }
+            super.registerNode(loopScope, nodeOrderId, node, allowOverwrite, allowNull);
+        }
+    }
+
     // Wrapper to clearly identify phase
     class TrivialInlinePhase extends Phase {
         final InliningGraphDecoder decoder;
@@ -843,6 +1116,27 @@ public class CompileQueue {
         }
     }
 
+    class NonTrivialInlinePhase extends Phase {
+        final NonTrivialInliningGraphDecoder decoder;
+        final HostedMethod method;
+
+        NonTrivialInlinePhase(NonTrivialInliningGraphDecoder decoder, HostedMethod method) {
+            this.decoder = decoder;
+            this.method = method;
+        }
+
+        @Override
+        protected void run(StructuredGraph graph) {
+            decoder.decode(method);
+        }
+
+        @Override
+        public CharSequence getName() {
+            return "NonTrivialInline";
+        }
+    }
+
+    @SuppressWarnings("try")
     private void doInlineTrivial(DebugContext debug, HostedMethod method) {
         /*
          * Before doing any work, check if there is any potential for inlining.
@@ -899,6 +1193,80 @@ public class CompileQueue {
         }
     }
 
+    private void doInlineNonTrivial(DebugContext debug, HostedMethod method) {
+        /*
+         * Before doing any work, check if there is any potential for inlining.
+         *
+         * Note that we do not have information about the recursive inlining depth, but that is OK
+         * because in that case we just over-estimate the inlining potential, i.e., we do the
+         * decoding just to find out that nothing could be inlined.
+         */
+        // *** TODO might need to remove this optimization since we don't know at this point the B|C of the invokes.
+//        boolean inliningPotential = false;
+//        for (var invokeInfo : method.compilationInfo.getCompilationGraph().getInvokeInfos()) {
+//            if (invokeInfo.getInvokeKind().isDirect() && makeInlineDecision(method, invokeInfo.getTargetMethod())) {
+//                inliningPotential = true;
+//                break;
+//            }
+//        }
+//        if (!inliningPotential) {
+//            return;
+//        }
+        var providers = runtimeConfig.lookupBackend(method).getProviders();
+        var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
+        try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
+            var inliningPlugin = new NonTrivialInliningPlugin();
+            var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin);
+            new NonTrivialInlinePhase(decoder, method).apply(graph);
+//            System.out.println("can improve: "+ decoder.canImproveStamps + " cant improve: "+ decoder.cantImproveStamps); // *** debug
+
+            // *** TODO maybe we can set a flag like this from finish inlining to say that the B|C is worth it so on the next round it will be inlined.
+            // *** TODO But this proceedure is meant to designate methods as trivial so they are inlined at all callsites we only care about specific callers.
+            // *** TODO would need to add a caller field to CompilationInfo that's checked from shouldInlineInvoke.
+            // *** TODO This wouldnt work bc you don't have access to the HostedMethod objs of callees in the decoders (which contain CompilationInfo)
+            // *** TODO The better way is to directly do the inlining of callees while evaluating the roots (commit in finish inline)
+//            if (inliningPlugin.inlinedDuringDecoding) { // *** can't check inlinedDuringDecoding bc it's set before finishInlining!
+            if (decoder.inlinedDuringDecoding) {
+                CanonicalizerPhase.create().apply(graph, providers);
+
+                if (!method.compilationInfo.isTrivialInliningDisabled() && graph.getNodeCount() > SubstrateOptions.MaxNodesAfterTrivialInlining.getValue()) {
+                    /*
+                     * The method is too larger after inlining. There is no good way of just
+                     * inlining some but not all trivial callees, because inlining is done during
+                     * graph decoding so the total graph size is not known until the whole graph is
+                     * decoded. We therefore disable all trivial inlining for the method. Except
+                     * callees that are annotated as "always inline" - therefore we need to pretend
+                     * that there was inlining progress, which triggers another round of inlining
+                     * where only "always inline" methods are inlined.
+                     */
+                    method.compilationInfo.setTrivialInliningDisabled();
+                    inliningProgress = true;
+
+                } else {
+                    /*
+                     * If we publish the new graph immediately, it can be picked up by other threads
+                     * trying to inline this method, and that would make the inlining
+                     * non-deterministic. This is why we are saving graphs to be published at the
+                     * end of each round.
+                     */
+                    unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
+                    // *** it doesn't matter if the root method has become trivial. The fact we inlined some callees means we should do another round. Previously we needed not only inline callees but have more trivial methods to possibly inline.
+
+                    // Select the best callee to attempt inlining next round.
+//                    NonTrivialInliningGraphDecoder.BCTuple bestTuple = decoder.callees.peek();
+//                    method.compilationInfo.inlineCallee = bestTuple.callee;
+                    // Compute new root size with new inlined nodes.
+//                    method.compilationInfo.sizeLastRound = 0;
+//                    for (Node n : graph.getNodes()) {
+//                        method.compilationInfo.sizeLastRound += n.estimatedNodeSize().value;
+//                    }
+                }
+            }
+        } catch (Throwable ex) {
+            throw debug.handle(ex);
+        }
+    }
+
     private boolean makeInlineDecision(HostedMethod method, HostedMethod callee) {
         if (!LayeredImageOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
             /*
@@ -915,6 +1283,32 @@ public class CompileQueue {
             return true;
         }
         if (optionAOTTrivialInline && callee.compilationInfo.isTrivialMethod() && !method.compilationInfo.isTrivialInliningDisabled()) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean makeNonTrivialInlineDecision(HostedMethod method, HostedMethod callee, GraphBuilderContext b) {
+        if (!SubstrateOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
+            /*
+             * We have compiled this method in a prior layer, but don't have the graph available
+             * here.
+             */
+            assert callee.isCompiledInPriorLayer() : method;
+            return false;
+        }
+//        if (universe.hostVM().neverInlineTrivial(method.getWrapped(), callee.getWrapped())) {
+//            return false;
+//        }
+        if (callee.shouldBeInlined()) {
+            return true;
+        }
+//        if (optionAOTTrivialInline && callee.compilationInfo.isTrivialMethod() && !method.compilationInfo.isTrivialInliningDisabled()) {
+//            return true;
+//        }
+        // *** methodScope is for the caller method. [seems to work]
+        if(((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope.caller == null) {
+            // this means the caller is the root method. Otherwise, stop here since we only want to inline one level deep per round for now.
             return true;
         }
         return false;

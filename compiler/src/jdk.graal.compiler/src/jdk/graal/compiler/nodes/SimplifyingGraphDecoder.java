@@ -197,7 +197,10 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
     protected void handleFixedNode(MethodScope methodScope, LoopScope loopScope, int nodeOrderId, FixedNode node) {
         try (DebugCloseable a = CanonicalizeFixedNode.start(debug)) {
             Node canonical = canonicalizeFixedNode(methodScope, loopScope, node);
+            methodScope.evaluations++;
+            methodScope.cost+= node.estimatedNodeSize().value;
             if (canonical != node) {
+                methodScope.benefit++;
                 handleCanonicalization(loopScope, nodeOrderId, node, canonical);
             }
         }
@@ -382,10 +385,11 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
     @Override
     @SuppressWarnings("try")
     protected Node handleFloatingNodeBeforeAdd(MethodScope methodScope, LoopScope loopScope, Node node) {
-        if (node instanceof ValueNode) {
+        methodScope.evaluations++;
+        if (node instanceof ValueNode) { // *** try to improve stamps
             ((ValueNode) node).inferStamp();
         }
-        if (node instanceof Canonicalizable) {
+        if (node instanceof Canonicalizable) { // *** try to canonicalize after improving stamps
             try (DebugCloseable context = graph.withNodeSourcePosition(node)) {
                 Node canonical = ((Canonicalizable) node).canonical(canonicalizerTool);
                 if (canonical == null) {
@@ -395,6 +399,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
                      * just do nothing and leave the node in place.
                      */
                 } else if (canonical != node) {
+                    methodScope.benefit++;
                     if (!canonical.isAlive()) {
                         assert !canonical.isDeleted();
                         canonical = graph.addOrUniqueWithInputs(canonical);
