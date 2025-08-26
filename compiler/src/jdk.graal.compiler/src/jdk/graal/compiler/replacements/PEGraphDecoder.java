@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import jdk.graal.compiler.nodes.GraphDecoder;
 import org.graalvm.collections.Pair;
 
 import jdk.graal.compiler.api.replacements.Fold;
@@ -183,7 +184,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         public static final OptionKey<Boolean> FailedLoopExplosionIsFatal = new OptionKey<>(false);
     }
 
-    protected class PEMethodScope extends MethodScope {
+    public class PEMethodScope extends MethodScope {
         /** The state of the caller method. Only non-null during method inlining. */
         public final PEMethodScope caller;
         public final ResolvedJavaMethod method;
@@ -343,7 +344,8 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         }
     }
 
-    protected class PENonAppendGraphBuilderContext extends CoreProvidersDelegate implements GraphBuilderContext {
+    // *** made public so it can be accessed from CompileQueue.TrivialInliningPlugin#shouldInlineInvoke
+    public class PENonAppendGraphBuilderContext extends CoreProvidersDelegate implements GraphBuilderContext {
         public final PEMethodScope methodScope;
         protected final Invoke invoke;
 
@@ -893,6 +895,10 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             recordGraphElements(encodedGraph);
             PEMethodScope methodScope = createMethodScope(graph, null, null, encodedGraph, method, null, 0, null);
             decode(createInitialLoopScope(methodScope, null));
+
+            if (methodScope.method.getName().contains("methodToBeInlined")){ // *** for debug
+                System.out.println("--- root methodToBeInlined benefit: " + methodScope.benefit + " evaluations: " + methodScope.evaluations);
+            }
             debug.dump(DebugContext.VERBOSE_LEVEL, graph, "Before graph cleanup");
             cleanupGraph(methodScope);
 
@@ -1191,10 +1197,10 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             ValueNode[] arguments = callTarget.arguments().toArray(ValueNode.EMPTY_ARRAY);
             GraphBuilderContext graphBuilderContext = new PENonAppendGraphBuilderContext(methodScope, invokeData.invoke);
 
-            for (InlineInvokePlugin plugin : inlineInvokePlugins) {
+            for (InlineInvokePlugin plugin : inlineInvokePlugins) { // Why does it loop if it returns at the first success [i guess its checking if ANY plugin allows it to be inlined]
                 InlineInfo inlineInfo = plugin.shouldInlineInvoke(graphBuilderContext, targetMethod, arguments);
                 if (inlineInfo != null) {
-                    if (inlineInfo.allowsInlining()) {
+                    if (inlineInfo.allowsInlining() && canImproveStamps(inlineInfo, arguments)) {
                         return doInline(methodScope, loopScope, invokeData, inlineInfo, arguments);
                     } else {
                         return null;
@@ -1203,6 +1209,10 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             }
             return null;
         }
+    }
+
+    protected boolean canImproveStamps(InlineInfo inlineInfo, ValueNode[] arguments) {
+        return true;
     }
 
     protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInfo inlineInfo, ValueNode[] arguments) {
@@ -1216,6 +1226,12 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         if (graphToInline == null) {
             return null;
         }
+        // *** debug assert doesn't seem to work. shouldInlineInvoke will prevent this except for methods that are explicitely marked inlinaable.
+        // *** This will also get hit by IBA too.
+        /*if (methodScope.caller != null){
+            //throw new RuntimeException("We only want to inline one level deep per round for now.");
+            System.out.println("Inlining non-first-level-callee: " +inlineMethod.getName() + " caller:" +  methodScope.method.getName());
+        }*/
 
         assert !graph.trackNodeSourcePosition() || graphToInline.trackNodeSourcePosition() : graph + " " + graphToInline;
         if (methodScope.inliningDepth > Options.InliningDepthError.getValue(options)) {
@@ -1277,6 +1293,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
          * The GraphEncoder assigns parameters a nodeId immediately after the fixed nodes.
          * Initializing createdNodes here avoid decoding and immediately replacing the
          * ParameterNodes.
+         * *** So they put these arg nodes at the back of the array so they do not get decoded and dont replace params. So whats the point? [Adinn Well they are in the new graph, but we dont need to ever decode them since they are not in the encoded graph.]
          */
         int firstArgumentNodeId = inlineScope.maxFixedNodeOrderId + 1;
         inlineLoopScope.setNodes(firstArgumentNodeId, arguments);
@@ -1302,6 +1319,32 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
          */
         if (debug.isDumpEnabled(DebugContext.VERY_DETAILED_LEVEL)) {
             debug.dump(DebugContext.VERY_DETAILED_LEVEL, graph, "After PE %s", ((PEMethodScope) methodScope).method.format("%H.%n"));
+        }
+    }
+
+    @Override // *** for debug
+    protected void beforeCanonicalization(@SuppressWarnings("unused") GraphDecoder.MethodScope methodScope) {
+        if (debug.isDumpEnabled(DebugContext.VERY_DETAILED_LEVEL)) {
+            debug.dump(DebugContext.VERY_DETAILED_LEVEL, graph, "- Before canonicalization %s", ((PEGraphDecoder.PEMethodScope) methodScope).method.format("%H.%n"));
+        }
+    }
+    @Override // *** for debug
+    protected void afterCanonicalization(@SuppressWarnings("unused") GraphDecoder.MethodScope methodScope) {
+        if (debug.isDumpEnabled(DebugContext.VERY_DETAILED_LEVEL)) {
+            debug.dump(DebugContext.VERY_DETAILED_LEVEL, graph, "- After canonicalization %s", ((PEGraphDecoder.PEMethodScope) methodScope).method.format("%H.%n"));
+        }
+    }
+
+
+    protected void beforeFloatingCanonicalization(@SuppressWarnings("unused") GraphDecoder.MethodScope methodScope) { // *** for debug
+        if (debug.isDumpEnabled(DebugContext.VERY_DETAILED_LEVEL)) {
+            debug.dump(DebugContext.VERY_DETAILED_LEVEL, graph, "- Before FLOATING canon... %s", ((PEGraphDecoder.PEMethodScope) methodScope).method.format("%H.%n"));
+        }
+    }
+
+    protected void afterFloatingCanonicalization(@SuppressWarnings("unused") GraphDecoder.MethodScope methodScope) { // *** for debug
+        if (debug.isDumpEnabled(DebugContext.VERY_DETAILED_LEVEL)) {
+            debug.dump(DebugContext.VERY_DETAILED_LEVEL, graph, "- After FLOATING canon... %s", ((PEGraphDecoder.PEMethodScope) methodScope).method.format("%H.%n"));
         }
     }
 
@@ -1680,8 +1723,14 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             }
             node = param.copyWithInputs();
         }
-
-        return super.handleFloatingNodeBeforeAdd(methodScope, loopScope, node);
+        if (methodScope.method.getName().contains("methodToBeInlined")) { // *** for debug
+            beforeFloatingCanonicalization(methodScope);
+        }
+        Node result =  super.handleFloatingNodeBeforeAdd(methodScope, loopScope, node);
+        if (methodScope.method.getName().contains("methodToBeInlined")) { // *** for debug
+            afterFloatingCanonicalization(methodScope);
+        }
+        return result;
     }
 
     protected void ensureOuterStateDecoded(PEMethodScope methodScope) {

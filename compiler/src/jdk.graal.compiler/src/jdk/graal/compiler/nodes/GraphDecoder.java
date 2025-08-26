@@ -39,6 +39,7 @@ import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+import jdk.graal.compiler.replacements.PEGraphDecoder;
 import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Equivalence;
@@ -149,6 +150,9 @@ public class GraphDecoder {
          * inlining log. {@code null} if the inlining log is not being decoded.
          */
         public InliningLogCodec.InliningLogDecoder inliningLogDecoder;
+        public int benefit = 0;
+        public int cost = 0;
+        public int evaluations = 0; // *** for debugging
 
         @SuppressWarnings("unchecked")
         protected MethodScope(LoopScope callerLoopScope, StructuredGraph graph, EncodedGraph encodedGraph, LoopExplosionPlugin.LoopExplosionKind loopExplosion) {
@@ -915,6 +919,13 @@ public class GraphDecoder {
     protected void afterMethodScope(@SuppressWarnings("unused") MethodScope methodScope) {
     }
 
+    // *** for debug
+    protected void beforeCanonicalization(@SuppressWarnings("unused") MethodScope methodScope) {
+    }
+    // *** for debug
+    protected void afterCanonicalization(@SuppressWarnings("unused") MethodScope methodScope) {
+    }
+
     protected void finishInlining(@SuppressWarnings("unused") MethodScope inlineScope) {
     }
 
@@ -933,7 +944,7 @@ public class GraphDecoder {
 
     public static final boolean DUMP_DURING_FIXED_NODE_PROCESSING = false;
 
-    protected LoopScope processNextNode(MethodScope methodScope, LoopScope loopScope) {
+    protected LoopScope processNextNode(MethodScope methodScope, LoopScope loopScope) {// This really only processes fixed nodes
         int nodeOrderId = loopScope.nodesToProcess.nextSetBit(0);
         loopScope.nodesToProcess.clear(nodeOrderId);
 
@@ -1023,7 +1034,7 @@ public class GraphDecoder {
                 updatePredecessors = methodScope.loopExplosion.isNoExplosion();
             }
 
-            methodScope.reader.setByteIndex(methodScope.encodedGraph.nodeStartOffsets[nodeOrderId]);
+            methodScope.reader.setByteIndex(methodScope.encodedGraph.nodeStartOffsets[nodeOrderId]); // *** This seeks the reader to the right node
             int typeId = methodScope.reader.getUVInt();
             assert node.getNodeClass() == methodScope.encodedGraph.getNodeClass(typeId) : Assertions.errorMessage(node, methodScope.encodedGraph.getNodeClass(typeId));
             makeFixedNodeInputs(methodScope, loopScope, node);
@@ -1031,6 +1042,7 @@ public class GraphDecoder {
 
             if ((node instanceof IfNode || node instanceof SwitchNode) &&
                             earlyCanonicalization(methodScope, successorAddScope, nodeOrderId, node)) {
+                beforeCanonicalization(methodScope); // *** for debug
                 return loopScope;
             }
 
@@ -1165,7 +1177,9 @@ public class GraphDecoder {
             } else if (node instanceof ReturnNode || node instanceof UnwindNode) {
                 methodScope.returnAndUnwindNodes.add((ControlSinkNode) node);
             } else {
+                beforeCanonicalization(methodScope);// *** for debug
                 handleFixedNode(methodScope, loopScope, nodeOrderId, node);
+                afterCanonicalization(methodScope);// *** for debug
             }
             if (DUMP_DURING_FIXED_NODE_PROCESSING) {
                 if (node != null) {
@@ -1828,8 +1842,8 @@ public class GraphDecoder {
             if (skipDirectEdge(node, edges, index)) {
                 continue;
             }
-            int orderId = readOrderId(methodScope);
-            Node value = ensureNodeCreated(methodScope, loopScope, orderId);
+            int orderId = readOrderId(methodScope);// This reads the encoded graph, but how does it know what position to read? [it's using the encoded node format]
+            Node value = ensureNodeCreated(methodScope, loopScope, orderId);//This should get the arguments of inlined methods
             edges.initializeNode(node, index, value);
             if (value != null && !value.isDeleted()) {
                 edges.update(node, null, value);
@@ -1842,7 +1856,7 @@ public class GraphDecoder {
             assert edges.getCount() - edges.getDirectCount() == 1 : "MergeNode has one variable size input (the ends)";
             assert Edges.getNodeList(node, edges.getOffsets(), edges.getDirectCount()) != null : "Input list must have been already created";
         } else {
-            for (int index = edges.getDirectCount(); index < edges.getCount(); index++) {
+            for (int index = edges.getDirectCount(); index < edges.getCount(); index++) {// for indirect edges
                 int size = methodScope.reader.getSVInt();
                 if (size != -1) {
                     NodeList<Node> nodeList = new NodeInputList<>(node, size);
@@ -1871,17 +1885,17 @@ public class GraphDecoder {
             assert edges.getCount() - edges.getDirectCount() == 1 : "PhiNode has one variable size input (the values)";
             edges.initializeList(node, edges.getDirectCount(), new NodeInputList<>(node));
         } else {
-            for (int index = 0; index < edges.getDirectCount(); index++) {
+            for (int index = 0; index < edges.getDirectCount(); index++) { // *** handle direct edges
                 int orderId = readOrderId(methodScope);
                 Node value = ensureNodeCreated(methodScope, loopScope, orderId);
                 edges.initializeNode(node, index, value);
             }
-            for (int index = edges.getDirectCount(); index < edges.getCount(); index++) {
+            for (int index = edges.getDirectCount(); index < edges.getCount(); index++) {// *** for each of the target node's edges
                 int size = methodScope.reader.getSVInt();
                 if (size != -1) {
                     NodeList<Node> nodeList = new NodeInputList<>(node, size);
-                    edges.initializeList(node, index, nodeList);
-                    for (int idx = 0; idx < size; idx++) {
+                    edges.initializeList(node, index, nodeList);// make a new input list -- why is it more than 1??? [direct edges are 1 node. indirect goes to a list. this is handling the indirect part]
+                    for (int idx = 0; idx < size; idx++) {//fill up the list with nodes
                         int orderId = readOrderId(methodScope);
                         Node value = ensureNodeCreated(methodScope, loopScope, orderId);
                         nodeList.initialize(idx, value);

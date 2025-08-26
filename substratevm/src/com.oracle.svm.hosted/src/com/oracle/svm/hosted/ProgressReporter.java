@@ -148,6 +148,7 @@ public class ProgressReporter implements FeatureSingleton, UnsavedSingleton {
         UNIVERSE("Building universe"),
         PARSING("Parsing methods", true, true),
         INLINING("Inlining methods", true, false),
+        NON_TRIVIAL_INLINING("NonTrivial Inlining", true, false),
         COMPILING("Compiling methods", true, true),
         LAYING_OUT("Laying out methods", true, true),
         CREATING("Creating image", true, true);
@@ -546,6 +547,10 @@ public class ProgressReporter implements FeatureSingleton, UnsavedSingleton {
 
     public ReporterClosable printInlining() {
         return print(TimerCollection.Registry.INLINE, BuildStage.INLINING);
+    }
+
+    public ReporterClosable printNonTrivialInlining() {
+        return print(TimerCollection.Registry.INLINE, BuildStage.NON_TRIVIAL_INLINING);
     }
 
     public ReporterClosable printCompiling() {
