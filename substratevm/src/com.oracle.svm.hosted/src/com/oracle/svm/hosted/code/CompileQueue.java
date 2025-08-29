@@ -36,12 +36,10 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.PriorityQueue;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import com.oracle.graal.pointsto.phases.InlineBeforeAnalysisGraphDecoder;
 import jdk.graal.compiler.nodes.GraphDecoder;
 import org.graalvm.nativeimage.ImageSingletons;
 
@@ -143,8 +141,15 @@ import jdk.vm.ci.code.site.Infopoint;
 import jdk.vm.ci.meta.MetaAccessProvider;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 import jdk.vm.ci.meta.VMConstant;
+import com.oracle.svm.hosted.code.CalleeInfo;
 
 public class CompileQueue {
+    public static void debugLogging(HostedMethod caller, HostedMethod callee, String message){
+//        if(callee.getQualifiedName().contains("methodToBeInlined")|| callee.getQualifiedName().contains("doWork")){
+        if(caller.getQualifiedName().contains("java.lang.String.charAt")){
+            System.out.println(message);
+        }
+    }
 
     public interface ParseFunction {
         void parse(DebugContext debug, HostedMethod method, CompileReason reason, RuntimeConfiguration config);
@@ -195,6 +200,7 @@ public class CompileQueue {
     private final ConcurrentMap<HostedMethod, UnpublishedTrivialMethods> unpublishedNonTrivialMethods = new ConcurrentHashMap<>();
 
     private final LayeredDispatchTableFeature layeredDispatchTableSupport = ImageLayerBuildingSupport.buildingSharedLayer() ? LayeredDispatchTableFeature.singleton() : null;
+    volatile boolean isFirstRound = true;
 
     public abstract static class CompileReason {
         /**
@@ -783,11 +789,41 @@ public class CompileQueue {
                         assert method.isOriginalMethod();
                         for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                             HostedMethod hMethod = (HostedMethod) multiMethod;
-                            if (hMethod.compilationInfo.getCompilationGraph() != null) {
+                            if (hMethod.compilationInfo.getCompilationGraph() != null && !hMethod.compilationInfo.inliningHalted) { //TODO if halted, check if any of the callees haveChanged
                                 executor.execute(new NonTrivialInlineTask(hMethod));
+                            } else {
+                                // If inlining halts for a root we need to flip their flag back the next round.
+                                hMethod.compilationInfo.hasChanged = false;
                             }
                         }
                     });
+                });
+                // At the end of the round we can mark methods for the next round
+                universe.getMethods().forEach(method -> {
+                    assert method.isOriginalMethod();
+                    for (MultiMethod multiMethod : method.getAllMultiMethods()) {
+                        HostedMethod hMethod = (HostedMethod) multiMethod;
+                        if (hMethod.compilationInfo.getCompilationGraph() != null && !hMethod.compilationInfo.inliningHalted) { //TODO if halted, check if any of the callees haveChanged
+                            double bestBC = -1;  // *** Start negative bc its possible all callees have 0 benefit
+                            CalleeInfo bestCallee = null;
+                            for (var entry : hMethod.compilationInfo.callees.entrySet()) {
+                                if (entry.getKey().compilationInfo.hasChanged) {
+                                    // If any callees have changed, we need to reassess their B|C before computing the priorities.
+                                    debugLogging(hMethod,hMethod,"~~ ~~ ~~ " + hMethod.getQualifiedName() + " No inlining next round because a callee has changed.");
+                                    bestCallee = null;
+                                    break;
+                                } else if (entry.getValue().bc > bestBC) {
+                                    bestCallee = entry.getValue();
+                                    bestBC = entry.getValue().bc;
+                                }
+                            }
+                            //VMError.guarantee(bestCallee != null || hMethod.compilationInfo.inliningHalted == true);
+                            hMethod.compilationInfo.inlineCalleeInfo = bestCallee;
+                            if (bestCallee != null) {
+                                hMethod.compilationInfo.callees.remove(bestCallee.method);
+                            }
+                        }
+                    }
                 });
             }
             // *** we still need to publish modified graphs
@@ -800,7 +836,8 @@ public class CompileQueue {
 //                }
             }
             unpublishedNonTrivialMethods.clear();
-        } while (inliningProgress);
+            isFirstRound = false;
+        } while (inliningProgress || round == 1); // First round just computes initial B|C. Inlining begins in round 2
     }
 
     class TrivialInliningPlugin implements InlineInvokePlugin {
@@ -824,8 +861,6 @@ public class CompileQueue {
 
     class NonTrivialInliningPlugin implements InlineInvokePlugin {
 
-        boolean inlinedDuringDecoding;
-
         @Override
         public InlineInfo shouldInlineInvoke(GraphBuilderContext b, ResolvedJavaMethod method, ValueNode[] args) {
             if (makeNonTrivialInlineDecision((HostedMethod) b.getMethod(), (HostedMethod) method, b) && b.recursiveInliningDepth(method) == 0) {
@@ -833,11 +868,6 @@ public class CompileQueue {
             } else {
                 return InlineInfo.DO_NOT_INLINE_WITH_EXCEPTION;
             }
-        }
-
-        @Override
-        public void notifyAfterInline(ResolvedJavaMethod methodToInline) {
-            inlinedDuringDecoding = true;
         }
     }
 
@@ -863,8 +893,7 @@ public class CompileQueue {
     }
 
     class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
-        int canImproveStamps;
-        int cantImproveStamps;
+        boolean budgetExhausted;
         boolean inlinedDuringDecoding;
         NonTrivialInliningGraphDecoder(StructuredGraph graph, Providers providers, NonTrivialInliningPlugin inliningPlugin) {
             super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, null,
@@ -884,20 +913,27 @@ public class CompileQueue {
             return super.trySimplifyInvoke(methodScope, loopScope, invokeData, callTarget);
         }
 
+        /** The purpose of this override is to calculate the size before inlining. It will be used later to calculate the callee cost.*/
+        @Override
+        protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments, int improvedStamps) {
+            int currentSize = 0;
+            for (Node n : graph.getNodes()) {
+                currentSize += n.estimatedNodeSize().value;
+            }
+            PEMethodScope scope =  methodScope;
+            while(scope.caller != null) {
+                scope = scope.caller;
+            }
+            HostedMethod root = (HostedMethod) scope.method;
+            root.compilationInfo.sizeBeforeInlinining = currentSize;
+            return super.doInline(methodScope,loopScope,invokeData,inlineInfo,arguments, improvedStamps);
+        }
+
         /** This method is partially based on HostedInliningPhase#enhanceParameters. */
         @Override
-        protected boolean canImproveStamps(InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments) {
+        protected int canImproveStamps(InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments, PEMethodScope methodScope) {
             int count = 0;
-            // TODO HostedInliningPhase#enhanceParameters is using the graph of the invoke. do we need to copy the graph? See exploreAndPrepareGraph [we cant just look up the graph here bc its encoded].
-            //  To mimic it exactly I think you'd need to decode before continuing
             ResolvedJavaMethod inlineMethod = inlineInfo.getMethodToInline();
-
-        /*
-        EncodedGraph graphToInline = lookupEncodedGraph(inlineMethod, inlineInfo.getIntrinsicBytecodeProvider());
-        if (graphToInline == null) {
-            return false;
-        }
-        */
 
             jdk.graal.compiler.core.common.type.Stamp[] paramStamps = jdk.graal.compiler.core.common.type.StampFactory.createParameterStamps(graph.getAssumptions(), inlineMethod);
             assert paramStamps.length == arguments.length : "Invoke arguments and parameters have different counts";
@@ -907,14 +943,6 @@ public class CompileQueue {
                 ValueNode actualParameter = arguments[i];
                 try {
                     if (actualParameter.isConstant()) {
-                        // *** don't need to actually change the graph yet.
-                        //jdk.graal.compiler.nodes.ConstantNode constant = (jdk.graal.compiler.nodes.ConstantNode) actualParameter.copyWithInputs(false);
-                        //jdk.graal.compiler.nodes.ConstantNode uniqueConstant = graph.unique(constant); //TODO graph
-                        // The source position comes from the containing graph so it's not valid in the
-                        // context of this graph.
-                        //uniqueConstant.clearNodeSourcePosition();
-                        //formalParameter.replaceAndDelete(uniqueConstant);
-                        //enqueueUsages(canonicalizableNodes, uniqueConstant);
                         count++;
                     } else {
                         jdk.graal.compiler.core.common.type.Stamp originalStamp = paramStamps[i];
@@ -922,42 +950,100 @@ public class CompileQueue {
 
                         if (improvedStamp != null) {
                             if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug
-                                System.out.println("----Improved: " + originalStamp + " " + improvedStamp);
+                                System.out.println("----"+ Thread.currentThread().threadId()+" Improved: " + originalStamp + " " + improvedStamp);
                             }
                             count++;
                             assert !originalStamp.equals(improvedStamp);
                             assert originalStamp.tryImproveWith(improvedStamp) != null;
-                            //formalParameter.setStamp(improvedStamp); // *** don't actually change the stamp
-                            //enqueueUsages(canonicalizableNodes, formalParameter);
                         }
                     }
                 } catch (java.lang.ClassCastException e) {// todo this is a hack
 //                    throw new RuntimeException( paramStamps[i]+ " " + argStamp+" ||| " + e.getMessage() ); // java.lang.Object  vs i64 Why?
-                    cantImproveStamps++;
-                    return false;
+                    return 0;
                 }
             }
             if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug
-                System.out.println("----Number of params improved:" + count);
+                System.out.println("----"+ Thread.currentThread().threadId()+" Number of params improved:" + count);
             }
-            //  in order to get all usages, we need the actual ParameterNode object, not just the parameter stamps.
-            if (count >0){
-                canImproveStamps++;
-            } else {
-                cantImproveStamps++;
-            }
-            return count > 0;
+            return count;
         }
 
-        boolean canInline(double benefit, double cost, double callerCost, HostedMethod caller, HostedMethod inlineMethod) {
-            double bc = benefit/cost;
-            double t1 = 0.005;
-            double t2 = 1;// Paper uses 120// 10; this casts a wider net  //1; this works well with SimpleInline3 //120; This is what the paper uses
-            double threshold = t1 * Math.pow(2, ( (callerCost + cost)/(16 * t2)) );
-            if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug
-                System.out.println("-----finishInlining ||| Caller: " + caller + " Callee: methodToBeInlined |||  calleeBenefit:"+ benefit + " calleeCost:"+ cost + " callerCost:"+ callerCost+ " Threshold:" +threshold);
+        boolean canInline(PEMethodScope inlineScope, HostedMethod caller, HostedMethod callee, boolean evaluatingFirstLevelCallee, PEMethodScope callerScope) {
+            HostedMethod root;
+            if (evaluatingFirstLevelCallee) {
+                root = caller;
+            } else if (callerScope.caller.caller == null) {
+                // We are evaluating a 2nd level callee because the marked callee has been inlined.
+                root = (HostedMethod) callerScope.caller.method;
+                //VMError.guarantee(root.compilationInfo.inlineCallee != null && root.compilationInfo.inlineCallee.equals(caller)); //Maybe the first level callee was inlined due to annotations
+            } else {
+                // We are beyond second level callees
+                return false;
             }
-            return bc >= threshold;
+            CalleeInfo targetCalleeInfo = root.compilationInfo.inlineCalleeInfo;
+            VMError.guarantee(inlineScope.cost > 0);
+
+            double currentSize = 0;
+            for (Node n : graph.getNodes()) {
+                currentSize += n.estimatedNodeSize().value;
+            }
+            double calleeCost = currentSize - root.compilationInfo.sizeBeforeInlinining;
+            double size = calleeCost + root.compilationInfo.sizeLastRound;
+            //double size = root.compilationInfo.sizeLastRound + cost;
+
+            // *** This is just for debugging
+            /*if (evaluatingFirstLevelCallee && calleeCost < 0){
+                System.out.println(root.getQualifiedName() +" currentSize: "+ currentSize   +" size last round: "+ root.compilationInfo.sizeLastRound);
+                System.out.println(" root.compilationInfo.sizeBeforeInlinining:" + root.compilationInfo.sizeBeforeInlinining);
+                System.out.println("------");
+            }*/
+            //VMError.guarantee(!evaluatingFirstLevelCallee || calleeCost >= 0 );
+
+            //debugLogging(root, callee,"currentSize: "+ currentSize+ " calleeCost:"+ calleeCost +" onthefly calleeCost:"+ inlineScope.cost +"  Size last round: "+ root.compilationInfo.sizeLastRound +" sizeBeforeInlinining: "+  root.compilationInfo.sizeBeforeInlinining);
+
+            double benefitWeight = 1.0;
+            double offset = 0.125;
+            double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * root.compilationInfo.callsites.get() / calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
+            // Only inline the top method marked from previous round. On round 1 we don't inline anything.
+            if (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)) {
+                double t1 = 6.0;
+                double t2 = 3.5;
+                VMError.guarantee(root.compilationInfo.originalSize > 0);
+                double threshold = targetCalleeInfo.depth * t1 * Math.pow(2, (size/(16 * t2)))/ (double) root.compilationInfo.originalSize;
+                debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold);
+                if(bc >= threshold){
+                    debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" committing inlining ");
+                    return true;
+                } else {
+                    // At first failure to beat threshold, we halt inlining in this root. We've run out of budget.
+                    budgetExhausted = true;
+                    debugLogging(caller,callee, "-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" ****** killing CFN ****** ");
+                    return false;
+                }
+            } else {
+                // We're either evaluating 1st level callees that are not our target or 2nd level callees
+
+                // *** For debugging only
+                if(!evaluatingFirstLevelCallee && targetCalleeInfo != null && !targetCalleeInfo.method.equals(caller)) {
+                    // How can we be evaluating a second level callee if the caller is not this round's target?
+                    System.out.println(targetCalleeInfo.method.getName() + " "+ root.getName() + " "+ caller.getName() + " "+ callee.getName());
+                    VMError.guarantee(false);
+                }
+                CalleeInfo oldInfo = root.compilationInfo.callees.remove(callee);
+                int depth = 1; // Default is callee belongs to root and is new
+                if (oldInfo != null) {
+                    depth = oldInfo.depth; // Updating the cost of a callee that's not our target
+                }
+                if (!evaluatingFirstLevelCallee  && targetCalleeInfo != null && targetCalleeInfo.method.equals(caller) ) {
+                    depth = targetCalleeInfo.depth +1  ; // 2nd level callee
+                }
+                root.compilationInfo.callees.put(callee, new CalleeInfo(bc, depth, callee));
+
+                if (evaluatingFirstLevelCallee) {
+                    debugLogging(caller,callee,"----- "+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" adding to queue for next round and  killing CFN");
+                }
+                return false;
+            }
         }
 
         @Override
@@ -968,13 +1054,9 @@ public class CompileQueue {
             LoopScope callerLoopScope = inlineScope.callerLoopScope;
             InvokeData invokeData = inlineScope.invokeData;
 
-            if (!canInline(inlineScope.benefit, inlineScope.cost, callerScope.cost, (HostedMethod) callerScope.method, (HostedMethod) inlineMethod)){
-
+            if (!canInline(inlineScope, (HostedMethod) callerScope.method,(HostedMethod) inlineMethod, callerScope.caller==null, callerScope)){
                 // This block is essentially the same as InlineBeforeAnalysisGraphDecoder#finishInlining
                 if (invokeData.invokePredecessor.next() != null) {
-                    if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug [seems to work]
-                        System.out.println("-----finishInlining ||| Caller: " + callerScope.method.getName() + " Callee: methodToBeInlined ****** killing CFN ****** ");
-                    }
                     killControlFlowNodes(inlineScope, invokeData.invokePredecessor.next());
                     assert invokeData.invokePredecessor.next() == null : "Successor must have been a fixed node created in the aborted scope, which is deleted now";
                 }
@@ -1158,32 +1240,23 @@ public class CompileQueue {
          * because in that case we just over-estimate the inlining potential, i.e., we do the
          * decoding just to find out that nothing could be inlined.
          */
-        // *** TODO might need to remove this optimization since we don't know at this point the B|C of the invokes.
-//        boolean inliningPotential = false;
-//        for (var invokeInfo : method.compilationInfo.getCompilationGraph().getInvokeInfos()) {
-//            if (invokeInfo.getInvokeKind().isDirect() && makeInlineDecision(method, invokeInfo.getTargetMethod())) {
-//                inliningPotential = true;
-//                break;
-//            }
-//        }
-//        if (!inliningPotential) {
-//            return;
-//        }
+
         var providers = runtimeConfig.lookupBackend(method).getProviders();
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
         try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
+            debugLogging(method,method,"*-*-*-*-*- Starting root: "+Thread.currentThread().threadId()+" "+method.getQualifiedName()+ " Callsites: "+method.compilationInfo.callsites.get());
             var inliningPlugin = new NonTrivialInliningPlugin();
             var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin);
             new NonTrivialInlinePhase(decoder, method).apply(graph);
-//            System.out.println("can improve: "+ decoder.canImproveStamps + " cant improve: "+ decoder.cantImproveStamps); // *** debug
 
-            // *** TODO maybe we can set a flag like this from finish inlining to say that the B|C is worth it so on the next round it will be inlined.
-            // *** TODO But this proceedure is meant to designate methods as trivial so they are inlined at all callsites we only care about specific callers.
-            // *** TODO would need to add a caller field to CompilationInfo that's checked from shouldInlineInvoke.
-            // *** TODO This wouldnt work bc you don't have access to the HostedMethod objs of callees in the decoders (which contain CompilationInfo)
-            // *** TODO The better way is to directly do the inlining of callees while evaluating the roots (commit in finish inline)
-//            if (inliningPlugin.inlinedDuringDecoding) { // *** can't check inlinedDuringDecoding bc it's set before finishInlining!
+            if (method.compilationInfo.callees.isEmpty() || decoder.budgetExhausted) {
+                // We've run out of budget or there are no more callees to evaluate.
+                method.compilationInfo.inliningHalted = true; //TODO is it possible that unrelated inlining into a callee might increase it's benefit and make it newly inlinable?
+                debugLogging(method,method, Thread.currentThread().threadId() + " halting inlining of: "+ method.getName());
+            }
+             // Even if we've run out of budget we still need to publish the new graphs
             if (decoder.inlinedDuringDecoding) {
+                method.compilationInfo.hasChanged = true;
                 CanonicalizerPhase.create().apply(graph, providers);
 
                 if (!method.compilationInfo.isTrivialInliningDisabled() && graph.getNodeCount() > SubstrateOptions.MaxNodesAfterTrivialInlining.getValue()) {
@@ -1207,18 +1280,27 @@ public class CompileQueue {
                      * end of each round.
                      */
                     unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
-                    // *** it doesn't matter if the root method has become trivial. The fact we inlined some callees means we should do another round. Previously we needed not only inline callees but have more trivial methods to possibly inline.
-
-                    // Select the best callee to attempt inlining next round.
-//                    NonTrivialInliningGraphDecoder.BCTuple bestTuple = decoder.callees.peek();
-//                    method.compilationInfo.inlineCallee = bestTuple.callee;
-                    // Compute new root size with new inlined nodes.
-//                    method.compilationInfo.sizeLastRound = 0;
-//                    for (Node n : graph.getNodes()) {
-//                        method.compilationInfo.sizeLastRound += n.estimatedNodeSize().value;
-//                    }
                 }
+            } else {
+                method.compilationInfo.hasChanged = false; // reset the flag
             }
+
+            /* Compute new root size with new inlined nodes. It's okay to do this once per round since
+            we only inline one callee per round. Otherwise, it would be necessary to update the root size as we
+            inline each method during DFS.*/
+            method.compilationInfo.sizeLastRound = 0;
+            for (Node n : graph.getNodes()) {
+                method.compilationInfo.sizeLastRound += n.estimatedNodeSize().value;
+            }
+            if (isFirstRound) {
+                method.compilationInfo.originalSize = method.compilationInfo.sizeLastRound;
+            }
+            // Use the same fallback as the paper
+            if (method.compilationInfo.sizeLastRound > 50000) {
+                System.out.println("!!! <*> FALLBACK HIT  <*> !!!");
+                method.compilationInfo.inliningHalted = true;
+            }
+
         } catch (Throwable ex) {
             throw debug.handle(ex);
         }
@@ -1245,30 +1327,64 @@ public class CompileQueue {
         return false;
     }
 
-    private boolean makeNonTrivialInlineDecision(HostedMethod method, HostedMethod callee, GraphBuilderContext b) {
+    private boolean makeNonTrivialInlineDecision(HostedMethod caller, HostedMethod callee, GraphBuilderContext b) {
         if (!SubstrateOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
             /*
              * We have compiled this method in a prior layer, but don't have the graph available
              * here.
              */
-            assert callee.isCompiledInPriorLayer() : method;
+            assert callee.isCompiledInPriorLayer() : caller;
             return false;
         }
-//        if (universe.hostVM().neverInlineTrivial(method.getWrapped(), callee.getWrapped())) {
-//            return false;
-//        }
-        if (callee.shouldBeInlined()) {
+
+        if (callee.shouldBeInlined()) { //TODO uncomment
             return true;
         }
-//        if (optionAOTTrivialInline && callee.compilationInfo.isTrivialMethod() && !method.compilationInfo.isTrivialInliningDisabled()) {
-//            return true;
-//        }
-        // *** methodScope is for the caller method. [seems to work]
-        if(((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope.caller == null) {
-            // this means the caller is the root method. Otherwise, stop here since we only want to inline one level deep per round for now.
-            return true;
+
+        // Get the caller of the caller
+        PEGraphDecoder.PEMethodScope callerScope = ((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope;
+        PEGraphDecoder.PEMethodScope callerCallerScope = callerScope.caller;
+        boolean evaluatingFirstLevelCallee = callerCallerScope == null;
+
+        HostedMethod root;
+        if (evaluatingFirstLevelCallee) {
+            root = caller;
+            if (isFirstRound) {
+                callee.compilationInfo.callsites.incrementAndGet();
+            }
+        } else {
+            // This is needed to stop ourselves from diving beyond 1 level of inlining
+            if (callerCallerScope.caller != null) {
+                return false;
+            }
+            root = (HostedMethod) callerCallerScope.method;
         }
-        return false;
+
+        // Check if the caller is the root method. Otherwise, we may need to stop here since we only want to inline once per round.
+        if(evaluatingFirstLevelCallee) {
+            if (root.compilationInfo.inlineCalleeInfo != null && root.compilationInfo.inlineCalleeInfo.method.equals(callee)){
+                // We're dealing with the method marked for inlining this round.
+                //debugLogging(root,callee, "makeNonTrivialInlineDecision true.");
+                return true;
+            }
+            // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead of doing the trial again.
+            if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee)){
+                String marked = root.compilationInfo.inlineCalleeInfo == null ? "null" : root.compilationInfo.inlineCalleeInfo.method.getQualifiedName();
+                debugLogging(root, callee,Thread.currentThread().threadId()+ " makeNonTrivialInlineDecision skipped "+callee.getQualifiedName() +" marked: "+marked);
+                return false;
+            }
+            // Callee is unmarked, but has changed
+            //debugLogging(root, callee,"makeNonTrivialInlineDecision unmarked true");
+            return true;
+        } else if (root.compilationInfo.inlineCalleeInfo != null && root.compilationInfo.inlineCalleeInfo.method.equals(caller)) {
+            // We may evaluate the 2nd level callees of the marked callee. On round 1 the target callee is null.
+            //debugLogging(root,callee,"makeNonTrivialInlineDecision 2nd level true");
+            return true;
+        } else {
+            // Don't commit more than one inlining per round.
+            //debugLogging(root,callee, "makeNonTrivialInlineDecision false");
+            return false;
+        }
     }
 
     private static boolean mustNotAllocateCallee(HostedMethod method) {

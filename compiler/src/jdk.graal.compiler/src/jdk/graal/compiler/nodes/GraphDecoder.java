@@ -153,6 +153,7 @@ public class GraphDecoder {
         public int benefit = 0;
         public int cost = 0;
         public int evaluations = 0; // *** for debugging
+        public int improvedStampCount = 0;
 
         @SuppressWarnings("unchecked")
         protected MethodScope(LoopScope callerLoopScope, StructuredGraph graph, EncodedGraph encodedGraph, LoopExplosionPlugin.LoopExplosionKind loopExplosion) {
@@ -1911,6 +1912,7 @@ public class GraphDecoder {
         }
         Node node = lookupNode(loopScope, nodeOrderId);
         if (node != null) {
+            methodScope.cost += node.estimatedNodeSize().value; //*** attribute cost to scope even though node is already created. Unused
             return node;
         }
 
