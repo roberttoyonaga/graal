@@ -24,6 +24,8 @@
  */
 package com.oracle.svm.hosted.code;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,6 +48,15 @@ import com.oracle.svm.hosted.code.CompileQueue.ParseHooks;
 import com.oracle.svm.hosted.meta.HostedMethod;
 
 public class CompilationInfo {
+    public HostedMethod inlineCallee;
+    public int sizeLastRound;
+    // Flag that indicates to halt inlining into this as a root.
+    public boolean inliningHalted;
+    // Flag to indicate that one of this method's callees has been inlined into it.
+    public boolean hasChanged;
+    // Before using, check callee's hasChanged flag // *** replaced the priority queue in the decoder
+    public Map<HostedMethod, Double> callees = new HashMap<>(8);
+
 
     protected final HostedMethod method;
 
