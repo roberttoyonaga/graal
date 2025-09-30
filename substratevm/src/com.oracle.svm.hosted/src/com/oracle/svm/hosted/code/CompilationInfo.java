@@ -50,11 +50,13 @@ import com.oracle.svm.hosted.meta.HostedMethod;
 public class CompilationInfo {
     public HostedMethod inlineCallee;
     public int sizeLastRound;
+    public int sizeBeforeInlinining;
+    public AtomicLong callsites = new AtomicLong();
     // Flag that indicates to halt inlining into this as a root.
     public boolean inliningHalted;
     // Flag to indicate that one of this method's callees has been inlined into it.
     public boolean hasChanged;
-    // Before using, check callee's hasChanged flag // *** replaced the priority queue in the decoder
+    // Before using, check callee's hasChanged flag
     public Map<HostedMethod, Double> callees = new HashMap<>(8);
 
 
