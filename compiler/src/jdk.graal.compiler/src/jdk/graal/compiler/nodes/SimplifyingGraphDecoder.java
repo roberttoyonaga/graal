@@ -198,9 +198,11 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
         try (DebugCloseable a = CanonicalizeFixedNode.start(debug)) {
             Node canonical = canonicalizeFixedNode(methodScope, loopScope, node);
             methodScope.evaluations++;
-            methodScope.cost+= node.estimatedNodeSize().value;
             if (canonical != node) {
+                // canonical's cost will be counted in NonTrivialInliningGraphDecoder.registerNode
                 methodScope.benefit++;
+                // Subtract the already accounted stale node's cost (unused now)
+                methodScope.cost -= node.estimatedNodeSize().value;
                 handleCanonicalization(loopScope, nodeOrderId, node, canonical);
             }
         }
@@ -290,6 +292,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
             methodScope.reader.setByteIndex(successorsByteIndex + (IfNode.SUCCESSOR_EDGES_COUNT * methodScope.orderIdWidth));
 
             removeSplit(methodScope, loopScope, ifNode, survivingOrderId);
+            methodScope.benefit += 2;
             return true;
         } else if (node instanceof IntegerSwitchNode switchNode && switchNode.value().isConstant()) {
             /*
@@ -309,6 +312,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
             methodScope.reader.setByteIndex(successorsByteIndex + size * methodScope.orderIdWidth);
 
             removeSplit(methodScope, loopScope, switchNode, survivingOrderId);
+            methodScope.benefit += 2;
             return true;
         } else {
             return false;
@@ -398,6 +402,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
                      * to add additional usages later on for which we need a node. Therefore, we
                      * just do nothing and leave the node in place.
                      */
+                    methodScope.benefit+=2;
                 } else if (canonical != node) {
                     methodScope.benefit++;
                     if (!canonical.isAlive()) {
