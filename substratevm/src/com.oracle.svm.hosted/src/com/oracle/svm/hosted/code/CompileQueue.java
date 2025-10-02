@@ -145,8 +145,7 @@ import com.oracle.svm.hosted.code.CalleeInfo;
 
 public class CompileQueue {
     public static void debugLogging(HostedMethod caller, HostedMethod callee, String message){
-//        if(callee.getQualifiedName().contains("methodToBeInlined")|| callee.getQualifiedName().contains("doWork")){
-        if(caller.getQualifiedName().contains("java.lang.String.charAt")){
+        if(callee.getQualifiedName().contains("methodToBeInlined")|| callee.getQualifiedName().contains("doWork") || caller.getQualifiedName().contains("java.lang.String.charAt")){
             System.out.println(message);
         }
     }
@@ -804,9 +803,15 @@ public class CompileQueue {
                     for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                         HostedMethod hMethod = (HostedMethod) multiMethod;
                         if (hMethod.compilationInfo.getCompilationGraph() != null && !hMethod.compilationInfo.inliningHalted) { //TODO if halted, check if any of the callees haveChanged
+                            if (isFirstRound) {
+                                hMethod.compilationInfo.targetCount = hMethod.compilationInfo.callees.size();
+                            }
                             double bestBC = -1;  // *** Start negative bc its possible all callees have 0 benefit
                             CalleeInfo bestCallee = null;
                             for (var entry : hMethod.compilationInfo.callees.entrySet()) {
+                                if (entry.getValue().ignore) {
+                                    continue;
+                                }
                                 if (entry.getKey().compilationInfo.hasChanged) {
                                     // If any callees have changed, we need to reassess their B|C before computing the priorities.
                                     debugLogging(hMethod,hMethod,"~~ ~~ ~~ " + hMethod.getQualifiedName() + " No inlining next round because a callee has changed.");
@@ -819,9 +824,6 @@ public class CompileQueue {
                             }
                             //VMError.guarantee(bestCallee != null || hMethod.compilationInfo.inliningHalted == true);
                             hMethod.compilationInfo.inlineCalleeInfo = bestCallee;
-                            if (bestCallee != null) {
-                                hMethod.compilationInfo.callees.remove(bestCallee.method);
-                            }
                         }
                     }
                 });
@@ -916,10 +918,7 @@ public class CompileQueue {
         /** The purpose of this override is to calculate the size before inlining. It will be used later to calculate the callee cost.*/
         @Override
         protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments, int improvedStamps) {
-            int currentSize = 0;
-            for (Node n : graph.getNodes()) {
-                currentSize += n.estimatedNodeSize().value;
-            }
+            int currentSize = getSize(graph);
             PEMethodScope scope =  methodScope;
             while(scope.caller != null) {
                 scope = scope.caller;
@@ -983,12 +982,9 @@ public class CompileQueue {
             CalleeInfo targetCalleeInfo = root.compilationInfo.inlineCalleeInfo;
             VMError.guarantee(inlineScope.cost > 0);
 
-            double currentSize = 0;
-            for (Node n : graph.getNodes()) {
-                currentSize += n.estimatedNodeSize().value;
-            }
+            double currentSize = getSize(graph);
             double calleeCost = currentSize - root.compilationInfo.sizeBeforeInlinining;
-            double size = calleeCost + root.compilationInfo.sizeLastRound;
+            double size = calleeCost;// + root.compilationInfo.sizeLastRound;
             //double size = root.compilationInfo.sizeLastRound + cost;
 
             // *** This is just for debugging
@@ -1003,20 +999,21 @@ public class CompileQueue {
 
             double benefitWeight = 1.0;
             double offset = 0.125;
-            double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * root.compilationInfo.callsites.get() / calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
+            double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * root.compilationInfo.callsites.get()/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
             // Only inline the top method marked from previous round. On round 1 we don't inline anything.
             if (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)) {
-                double t1 = 6.0;
-                double t2 = 3.5;
-                VMError.guarantee(root.compilationInfo.originalSize > 0);
-                double threshold = targetCalleeInfo.depth * t1 * Math.pow(2, (size/(16 * t2)))/ (double) root.compilationInfo.originalSize;
-                debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold);
+                if (--root.compilationInfo.targetCount ==0) {
+                    budgetExhausted = true;
+                }
+                double t1 = 5.0;
+                double t2 = 1.0;
+                double threshold = (1+ (targetCalleeInfo.depth-1)/4) * t1 * Math.pow(2, (size/(16 * t2)));
+                debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit*benefitWeight + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold + " target count:"+root.compilationInfo.targetCount + " depth:" +targetCalleeInfo.depth );
                 if(bc >= threshold){
                     debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" committing inlining ");
                     return true;
                 } else {
                     // At first failure to beat threshold, we halt inlining in this root. We've run out of budget.
-                    budgetExhausted = true;
                     debugLogging(caller,callee, "-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" ****** killing CFN ****** ");
                     return false;
                 }
@@ -1036,6 +1033,7 @@ public class CompileQueue {
                 }
                 if (!evaluatingFirstLevelCallee  && targetCalleeInfo != null && targetCalleeInfo.method.equals(caller) ) {
                     depth = targetCalleeInfo.depth +1  ; // 2nd level callee
+//                    System.out.println("depth is now "+depth+". caller" + caller.getQualifiedName() + " callee: " + callee.getQualifiedName());
                 }
                 root.compilationInfo.callees.put(callee, new CalleeInfo(bc, depth, callee));
 
@@ -1254,6 +1252,9 @@ public class CompileQueue {
                 method.compilationInfo.inliningHalted = true; //TODO is it possible that unrelated inlining into a callee might increase it's benefit and make it newly inlinable?
                 debugLogging(method,method, Thread.currentThread().threadId() + " halting inlining of: "+ method.getName());
             }
+            if (method.compilationInfo.inlineCalleeInfo != null) {
+                method.compilationInfo.callees.get(method.compilationInfo.inlineCalleeInfo.method).ignore = true;
+            }
              // Even if we've run out of budget we still need to publish the new graphs
             if (decoder.inlinedDuringDecoding) {
                 method.compilationInfo.hasChanged = true;
@@ -1291,9 +1292,6 @@ public class CompileQueue {
             method.compilationInfo.sizeLastRound = 0;
             for (Node n : graph.getNodes()) {
                 method.compilationInfo.sizeLastRound += n.estimatedNodeSize().value;
-            }
-            if (isFirstRound) {
-                method.compilationInfo.originalSize = method.compilationInfo.sizeLastRound;
             }
             // Use the same fallback as the paper
             if (method.compilationInfo.sizeLastRound > 50000) {
@@ -1359,7 +1357,9 @@ public class CompileQueue {
             }
             root = (HostedMethod) callerCallerScope.method;
         }
-
+        if (root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).ignore) {
+            return false;
+        }
         // Check if the caller is the root method. Otherwise, we may need to stop here since we only want to inline once per round.
         if(evaluatingFirstLevelCallee) {
             if (root.compilationInfo.inlineCalleeInfo != null && root.compilationInfo.inlineCalleeInfo.method.equals(callee)){
@@ -1965,4 +1965,28 @@ public class CompileQueue {
     public Suites getRegularSuites() {
         return regularSuites;
     }
+
+
+    public static int getSize(StructuredGraph graph) {
+        /*int numInvokes = 0;
+        int numOthers = 0;
+        for (Node n : graph.getNodes()) {
+            if (n instanceof jdk.graal.compiler.nodes.StartNode || n instanceof ParameterNode || n instanceof jdk.graal.compiler.nodes.FullInfopointNode || n instanceof jdk.graal.compiler.nodes.spi.ValueProxy || n instanceof jdk.graal.compiler.nodes.extended.ValueAnchorNode || n instanceof FrameState) {
+                continue;
+            }
+            if (n instanceof MethodCallTargetNode || n instanceof jdk.graal.compiler.replacements.nodes.MethodHandleWithExceptionNode) {
+                numInvokes++;
+            } else {
+                numOthers++;
+            }
+        }
+
+        return numInvokes*8 + numOthers*2;*/
+        int currentSize = 0;
+        for (Node n : graph.getNodes()) {
+            currentSize += n.estimatedNodeSize().value;
+        }
+        return currentSize;
+    }
+
 }
