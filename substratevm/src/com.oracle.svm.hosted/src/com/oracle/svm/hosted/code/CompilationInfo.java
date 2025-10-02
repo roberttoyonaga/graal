@@ -51,7 +51,7 @@ public class CompilationInfo {
     public CalleeInfo inlineCalleeInfo; // our target for the current round
     public int sizeLastRound;
     public int sizeBeforeInlinining;
-    public int originalSize;
+    public int targetCount; //set to original callee count
     public AtomicLong callsites = new AtomicLong();
     // Flag that indicates to halt inlining into this as a root.
     public boolean inliningHalted;
