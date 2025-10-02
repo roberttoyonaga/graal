@@ -292,7 +292,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
             methodScope.reader.setByteIndex(successorsByteIndex + (IfNode.SUCCESSOR_EDGES_COUNT * methodScope.orderIdWidth));
 
             removeSplit(methodScope, loopScope, ifNode, survivingOrderId);
-            methodScope.benefit += 2;
+            methodScope.benefit += 100;
             return true;
         } else if (node instanceof IntegerSwitchNode switchNode && switchNode.value().isConstant()) {
             /*
@@ -312,7 +312,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
             methodScope.reader.setByteIndex(successorsByteIndex + size * methodScope.orderIdWidth);
 
             removeSplit(methodScope, loopScope, switchNode, survivingOrderId);
-            methodScope.benefit += 2;
+            methodScope.benefit += 100;
             return true;
         } else {
             return false;
