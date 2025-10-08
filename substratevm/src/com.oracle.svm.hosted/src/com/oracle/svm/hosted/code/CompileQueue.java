@@ -218,7 +218,10 @@ public class CompileQueue {
     private final ConcurrentMap<HostedMethod, UnpublishedTrivialMethods> unpublishedNonTrivialMethods = new ConcurrentHashMap<>();
 
     private final LayeredDispatchTableFeature layeredDispatchTableSupport = ImageLayerBuildingSupport.buildingSharedLayer() ? LayeredDispatchTableFeature.singleton() : null;
-    volatile boolean isFirstRound = true;
+
+    private volatile int round = 0;
+    private volatile boolean allHalted;
+
 
     public abstract static class CompileReason {
         /**
@@ -819,10 +822,10 @@ public class CompileQueue {
 
     @SuppressWarnings("try")
     protected void inlineNonTrivialMethods(DebugContext debug) throws InterruptedException {
-        int round = 0;
+        round = 0;
         do {
             ProgressReporter.singleton().reportStageProgress();
-            inliningProgress = false;
+            allHalted = true;
             round++;
             System.out.println("\n==== Non-Trivial Inlining  round " + round);
             try (Indent ignored = debug.logAndIndent("==== Non-Trivial Inlining  round %d%n", round)) {
@@ -846,27 +849,32 @@ public class CompileQueue {
                     for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                         HostedMethod hMethod = (HostedMethod) multiMethod;
                         if (hMethod.compilationInfo.getCompilationGraph() != null && !hMethod.compilationInfo.inliningHalted) { //TODO if halted, check if any of the callees haveChanged
-                            if (isFirstRound) {
+                            if (round == 1) {
                                 hMethod.compilationInfo.targetCount = hMethod.compilationInfo.callees.size();
                             }
-                            double bestBC = -1;  // *** Start negative bc its possible all callees have 0 benefit
-                            CalleeInfo bestCallee = null;
+                            double bestBC = -1;
+                            CalleeInfo bestCalleeInfo = null;
                             for (var entry : hMethod.compilationInfo.callees.entrySet()) {
                                 if (entry.getValue().ignore) {
                                     continue;
                                 }
+                                double bc = entry.getValue().bc/(1 + (entry.getValue().depth - 1)/4); // Account for depth in priority. This actually helps a lot.
                                 if (entry.getKey().compilationInfo.hasChanged) {
                                     // If any callees have changed, we need to reassess their B|C before computing the priorities.
                                     debugLogging(hMethod,hMethod,"~~ ~~ ~~ " + hMethod.getQualifiedName() + " No inlining next round because a callee has changed.");
-                                    bestCallee = null;
+                                    bestCalleeInfo = null;
                                     break;
-                                } else if (entry.getValue().bc > bestBC) {
-                                    bestCallee = entry.getValue();
-                                    bestBC = entry.getValue().bc;
+                                } else if (bc > bestBC) {
+                                    bestCalleeInfo = entry.getValue();
+                                    bestBC = bc;
                                 }
                             }
                             //VMError.guarantee(bestCallee != null || hMethod.compilationInfo.inliningHalted == true);
-                            hMethod.compilationInfo.inlineCalleeInfo = bestCallee;
+                            hMethod.compilationInfo.inlineCalleeInfo = bestCalleeInfo;
+                            // it may be the case that all callees are ignored and there are no more callee's to evaluate
+                            if (bestCalleeInfo != null) {
+                                allHalted = false;
+                            }
                         }
                     }
                 });
@@ -874,15 +882,9 @@ public class CompileQueue {
             // *** we still need to publish modified graphs
             for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedNonTrivialMethods.entrySet()) {
                 entry.getKey().compilationInfo.setCompilationGraph(entry.getValue().unpublishedGraph);
-                // *** Previously, we only needed more rounds if inlining callees produced trivial methods. Now we need to do more rounds as long as inlining happened.
-//                if (entry.getValue().newlyTrivial) {
-                inliningProgress = true;
-//                    entry.getKey().compilationInfo.setTrivialMethod();
-//                }
             }
             unpublishedNonTrivialMethods.clear();
-            isFirstRound = false;
-        } while (inliningProgress || round == 1); // First round just computes initial B|C. Inlining begins in round 2
+        } while (!allHalted); // First round just computes initial B|C. Inlining begins in round 2
     }
 
     class TrivialInliningPlugin implements InlineInvokePlugin {
@@ -938,8 +940,8 @@ public class CompileQueue {
     }
 
     class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
-        boolean budgetExhausted;
         boolean inlinedDuringDecoding;
+        boolean attemptedInlining; // *** debugging only
         NonTrivialInliningGraphDecoder(StructuredGraph graph, Providers providers, NonTrivialInliningPlugin inliningPlugin) {
             super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, null,
                             null,
@@ -968,6 +970,11 @@ public class CompileQueue {
             }
             HostedMethod root = (HostedMethod) scope.method;
             root.compilationInfo.sizeBeforeInlinining = currentSize;
+            HostedMethod callee = (HostedMethod) inlineInfo.getMethodToInline();
+            if (!root.compilationInfo.callees.containsKey(callee)) {
+                root.compilationInfo.callees.put(callee, new CalleeInfo(-1, 1, callee, false, -1));// depth is 1st level by default. It has not been populated yet so lastRoundUpdated = -1
+            }
+            root.compilationInfo.callees.get(callee).sizeBeforeInlining = currentSize; // TODO watch out for recursion...
             return super.doInline(methodScope,loopScope,invokeData,inlineInfo,arguments, improvedStamps);
         }
 
@@ -1025,8 +1032,11 @@ public class CompileQueue {
             CalleeInfo targetCalleeInfo = root.compilationInfo.inlineCalleeInfo;
             VMError.guarantee(inlineScope.cost > 0);
 
+            CalleeInfo calleeInfo = root.compilationInfo.callees.get(callee);
+            VMError.guarantee(calleeInfo != null, "This should have been created in doInline");
+
             double currentSize = getSize(graph);
-            double calleeCost = currentSize - root.compilationInfo.sizeBeforeInlinining;
+            double calleeCost = currentSize - calleeInfo.sizeBeforeInlining;
             double size = calleeCost;// + root.compilationInfo.sizeLastRound;
             //double size = root.compilationInfo.sizeLastRound + cost;
 
@@ -1038,15 +1048,22 @@ public class CompileQueue {
             }*/
             //VMError.guarantee(!evaluatingFirstLevelCallee || calleeCost >= 0 );
 
-            //debugLogging(root, callee,"currentSize: "+ currentSize+ " calleeCost:"+ calleeCost +" onthefly calleeCost:"+ inlineScope.cost +"  Size last round: "+ root.compilationInfo.sizeLastRound +" sizeBeforeInlinining: "+  root.compilationInfo.sizeBeforeInlinining);
+//            debugLogging(root, callee,"currentSize: "+ currentSize+ " calleeCost:"+ calleeCost +" onthefly calleeCost:"+ inlineScope.cost +"  Size last round: "+ root.compilationInfo.sizeLastRound +" sizeBeforeInlinining: "+  root.compilationInfo.sizeBeforeInlinining);
+//            if(root.compilationInfo.sizeBeforeInlinining != calleeInfo.sizeBeforeInlining){
+//                System.out.println("~*~*~*~*~ sizeBeforeInlinining: "+  root.compilationInfo.sizeBeforeInlinining + " new sizeBeforeInlining: "+ calleeInfo.sizeBeforeInlining);
+//                System.out.println("~*~*~*~*~ callee: "+ calleeInfo.method.getQualifiedName() + " is target callee:" + (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)));
+//            }
 
             double benefitWeight = 1.0;
             double offset = 0.125;
             double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * root.compilationInfo.callsites.get()/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
             // Only inline the top method marked from previous round. On round 1 we don't inline anything.
             if (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)) {
-                if (--root.compilationInfo.targetCount ==0) {
-                    budgetExhausted = true;
+                attemptedInlining = true;
+                // If the target method has multiple callsites, each attempt to inline should decrement the budget (since each callsite contributed to the budget).
+                if (--root.compilationInfo.targetCount == 0) {
+                    root.compilationInfo.inliningHalted = true; //TODO is it possible that unrelated inlining into a callee might increase it's benefit and make it newly inlinable?
+                    debugLogging(root,root, Thread.currentThread().threadId() + " callee evaluation limit reached for: "+ root.getName());
                 }
                 double t1 = 5.0;
                 double t2 = 1.0;
@@ -1064,21 +1081,33 @@ public class CompileQueue {
                 // We're either evaluating 1st level callees that are not our target or 2nd level callees
 
                 // *** For debugging only
-                if(!evaluatingFirstLevelCallee && targetCalleeInfo != null && !targetCalleeInfo.method.equals(caller)) {
+                if (!evaluatingFirstLevelCallee && targetCalleeInfo != null && !targetCalleeInfo.method.equals(caller)) {
                     // How can we be evaluating a second level callee if the caller is not this round's target?
-                    System.out.println(targetCalleeInfo.method.getName() + " "+ root.getName() + " "+ caller.getName() + " "+ callee.getName());
+                    System.out.println(targetCalleeInfo.method.getName() + " " + root.getName() + " " + caller.getName() + " " + callee.getName());
                     VMError.guarantee(false);
                 }
-                CalleeInfo oldInfo = root.compilationInfo.callees.remove(callee);
-                int depth = 1; // Default is callee belongs to root and is new
-                if (oldInfo != null) {
-                    depth = oldInfo.depth; // Updating the cost of a callee that's not our target
+
+                boolean secondLevel = !evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(caller);
+
+                // If multiple callsites, set the CalleeInfo for the method to the least promising one.
+                boolean update = true;
+                /*if (calleeInfo.lastRoundUpdated == round) {
+                    // If it was already updated this round at another callsite.
+                    double updated = bc / (1 + ((secondLevel ? targetCalleeInfo.depth + 1 : calleeInfo.depth) - 1) / 4);
+                    double old = calleeInfo.bc / (1 + (calleeInfo.depth - 1) / 4);
+                    if (updated > old) {
+                        update = false;
+                    }
+                }*/
+
+                if (update) {
+                    if (secondLevel) {
+                        calleeInfo.depth = targetCalleeInfo.depth + 1;
+                        calleeInfo.secondLevel = true;
+                    }
+                    calleeInfo.bc =  bc;
+                    calleeInfo.lastRoundUpdated = round;
                 }
-                if (!evaluatingFirstLevelCallee  && targetCalleeInfo != null && targetCalleeInfo.method.equals(caller) ) {
-                    depth = targetCalleeInfo.depth +1  ; // 2nd level callee
-//                    System.out.println("depth is now "+depth+". caller" + caller.getQualifiedName() + " callee: " + callee.getQualifiedName());
-                }
-                root.compilationInfo.callees.put(callee, new CalleeInfo(bc, depth, callee));
 
                 if (evaluatingFirstLevelCallee) {
                     debugLogging(caller,callee,"----- "+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" adding to queue for next round and  killing CFN");
@@ -1290,16 +1319,11 @@ public class CompileQueue {
             var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin);
             new NonTrivialInlinePhase(decoder, method).apply(graph);
 
-            if (method.compilationInfo.callees.isEmpty() || decoder.budgetExhausted) {
-                // We've run out of budget or there are no more callees to evaluate.
-                method.compilationInfo.inliningHalted = true; //TODO is it possible that unrelated inlining into a callee might increase it's benefit and make it newly inlinable?
-                debugLogging(method,method, Thread.currentThread().threadId() + " halting inlining of: "+ method.getName());
-            }
-            if (method.compilationInfo.inlineCalleeInfo != null) {
-                method.compilationInfo.callees.get(method.compilationInfo.inlineCalleeInfo.method).ignore = true;
-            }
-             // Even if we've run out of budget we still need to publish the new graphs
+            // Even if we've run out of budget we still need to publish the new graphs
             if (decoder.inlinedDuringDecoding) {
+                VMError.guarantee(method.compilationInfo.inlineCalleeInfo != null, "how could we have inlined without a target?");
+                // Inlining was successful, remove the callee from the root's candidate collection. Don't ignore, since if there are multiple callsites, a new CalleeInfo should be made for them next round
+                method.compilationInfo.callees.remove(method.compilationInfo.inlineCalleeInfo.method);
                 method.compilationInfo.hasChanged = true;
                 CanonicalizerPhase.create().apply(graph, providers);
 
@@ -1326,7 +1350,31 @@ public class CompileQueue {
                     unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
                 }
             } else {
+                debugLogging(method,method, method.getQualifiedName() +" didn't inline this round. Attempted: "+ decoder.attemptedInlining);
+                if (method.compilationInfo.inlineCalleeInfo != null) {
+                    // We attempted inlining but could not meet the threshold.
+                    method.compilationInfo.callees.get(method.compilationInfo.inlineCalleeInfo.method).ignore = true;
+                }
                 method.compilationInfo.hasChanged = false; // reset the flag
+            }
+
+            /*If a method is marked for inlining but ultimately doesn't meet the threshold, it's 2nd level children have still been added to the priority queue.
+            But we'll never encounter them in the next round. We should remove them. This is an optimization to avoid wasting rounds searching for callees that don't exist.*/
+            List<HostedMethod> toRemove = new ArrayList<>();
+            for (var entry : method.compilationInfo.callees.entrySet()) {
+                if (decoder.inlinedDuringDecoding){
+                    entry.getValue().secondLevel = false; // it now becomes 1st level
+                } else if (entry.getValue().secondLevel){
+                    toRemove.add(entry.getKey());
+                }
+            }
+            for (var removeMe : toRemove) {
+                method.compilationInfo.callees.remove(removeMe);
+            }
+
+            // *** debug only
+            for (var entry : method.compilationInfo.callees.entrySet()) {
+                VMError.guarantee(entry.getValue().secondLevel == false);
             }
 
             /* Compute new root size with new inlined nodes. It's okay to do this once per round since
@@ -1378,7 +1426,7 @@ public class CompileQueue {
             return false;
         }
 
-        if (callee.shouldBeInlined()) { //TODO uncomment
+        if (callee.shouldBeInlined()) {
             return true;
         }
 
@@ -1390,7 +1438,7 @@ public class CompileQueue {
         HostedMethod root;
         if (evaluatingFirstLevelCallee) {
             root = caller;
-            if (isFirstRound) {
+            if (round == 1) {
                 callee.compilationInfo.callsites.incrementAndGet();
             }
         } else {
@@ -1400,9 +1448,14 @@ public class CompileQueue {
             }
             root = (HostedMethod) callerCallerScope.method;
         }
-        if (root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).ignore) {
+
+        if (root.compilationInfo.inliningHalted) {
+            return false;
+        } else if ((root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).ignore)) {
+            VMError.guarantee(root.compilationInfo.inlineCalleeInfo == null || !root.compilationInfo.inlineCalleeInfo.method.equals(callee));
             return false;
         }
+
         // Check if the caller is the root method. Otherwise, we may need to stop here since we only want to inline once per round.
         if(evaluatingFirstLevelCallee) {
             if (root.compilationInfo.inlineCalleeInfo != null && root.compilationInfo.inlineCalleeInfo.method.equals(callee)){
@@ -1413,7 +1466,8 @@ public class CompileQueue {
             // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead of doing the trial again.
             if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee)){
                 String marked = root.compilationInfo.inlineCalleeInfo == null ? "null" : root.compilationInfo.inlineCalleeInfo.method.getQualifiedName();
-                debugLogging(root, callee,Thread.currentThread().threadId()+ " makeNonTrivialInlineDecision skipped "+callee.getQualifiedName() +" marked: "+marked);
+                debugLogging(root, callee,Thread.currentThread().threadId()+ " makeNonTrivialInlineDecision skipped "+callee.getQualifiedName() +" marked: "+marked +
+                        " root " + root.getQualifiedName()+ " root target count "+ root.compilationInfo.targetCount);
                 return false;
             }
             // Callee is unmarked, but has changed
