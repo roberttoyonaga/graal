@@ -48,15 +48,16 @@ import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.code.CalleeInfo;
 
 public class CompilationInfo {
-    public CalleeInfo inlineCalleeInfo; // our target for the current round
-    public int sizeLastRound;
-    public int sizeBeforeInlinining;
-    public int targetCount; //set to original callee count
+    public volatile CalleeInfo inlineCalleeInfo; // our target for the current round
+    public volatile int sizeLastRound;
+    public volatile int sizeBeforeInlinining;
+    public volatile int targetCount; //set to original callee count
     public AtomicLong callsites = new AtomicLong();
     // Flag that indicates to halt inlining into this as a root.
-    public boolean inliningHalted;
+    public volatile boolean inliningHalted;
     // Flag to indicate that one of this method's callees has been inlined into it.
-    public boolean hasChanged;
+    public volatile boolean hasChanged;
+    public volatile double lastBestBC = -1;
     // Before using, check callee's hasChanged flag
     public Map<HostedMethod, CalleeInfo> callees = new HashMap<>(8);
 
