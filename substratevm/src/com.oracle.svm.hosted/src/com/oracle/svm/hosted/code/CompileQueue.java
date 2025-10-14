@@ -929,9 +929,10 @@ public class CompileQueue {
             root.compilationInfo.sizeBeforeInlinining = currentSize;
             HostedMethod callee = (HostedMethod) inlineInfo.getMethodToInline();
             if (!root.compilationInfo.callees.containsKey(callee)) {
-                root.compilationInfo.callees.put(callee, new CalleeInfo(-1, 1, callee, false, -1));// depth is 1st level by default. It has not been populated yet so lastRoundUpdated = -1
+                root.compilationInfo.callees.put(callee, new CalleeInfo(-1, 1, callee, false, -1, 0));// depth is 1st level by default. It has not been populated yet so lastRoundUpdated = -1
             }
             root.compilationInfo.callees.get(callee).sizeBeforeInlining = currentSize; // TODO watch out for recursion...
+            root.compilationInfo.callees.get(callee).loopDepth = loopScope.loopDepth;
             return super.doInline(methodScope,loopScope,invokeData,inlineInfo,arguments, improvedStamps);
         }
 
@@ -1012,8 +1013,9 @@ public class CompileQueue {
 //            }
 
             double benefitWeight = 1.0;
-            double offset = 0.125;
-            double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * root.compilationInfo.callsites.get()/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
+            double offset = 4.0; //  0.125
+//            double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * root.compilationInfo.callsites.get()/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
+            double bc = /*(calleeInfo.loopDepth + 1) * */ (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
             // Only inline the top method marked from previous round. On round 1 we don't inline anything.
             if (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)) {
                 attemptedInlining = true;
@@ -1022,8 +1024,8 @@ public class CompileQueue {
                     root.compilationInfo.inliningHalted = true; //TODO is it possible that unrelated inlining into a callee might increase it's benefit and make it newly inlinable?
                     debugLogging(root,root, Thread.currentThread().threadId() + " callee evaluation limit reached for: "+ root.getName());
                 }
-                double t1 = 5.0;
-                double t2 = 1.0;
+                double t1 = 3.0; //5.0
+                double t2 = 2.0; //1.0
                 double threshold = (1+ (targetCalleeInfo.depth-1)/4) * t1 * Math.pow(2, (size/(16 * t2)));
                 debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit*benefitWeight + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold + " target count:"+root.compilationInfo.targetCount + " depth:" +targetCalleeInfo.depth );
                 if(bc >= threshold){
@@ -1048,14 +1050,14 @@ public class CompileQueue {
 
                 // If multiple callsites, set the CalleeInfo for the method to the least promising one.
                 boolean update = true;
-                /*if (calleeInfo.lastRoundUpdated == round) {
+                if (calleeInfo.lastRoundUpdated == round) {
                     // If it was already updated this round at another callsite.
                     double updated = bc / (1 + ((secondLevel ? targetCalleeInfo.depth + 1 : calleeInfo.depth) - 1) / 4);
                     double old = calleeInfo.bc / (1 + (calleeInfo.depth - 1) / 4);
-                    if (updated > old) {
+                    if (updated >= old) {
                         update = false;
                     }
-                }*/
+                }
 
                 if (update) {
                     if (secondLevel) {
