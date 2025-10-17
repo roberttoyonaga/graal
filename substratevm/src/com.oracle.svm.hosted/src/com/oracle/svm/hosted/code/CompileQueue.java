@@ -852,19 +852,6 @@ public class CompileQueue {
                             CalleeInfo bestCalleeInfo = null;
                             boolean anyChanged = false;
 
-                            if (round == 1) {
-//                                //it's possible a method has no callees to begin with.
-//                                if (hMethod.compilationInfo.callees.isEmpty()) {
-//                                    hMethod.compilationInfo.inliningHalted = true;
-//                                    continue;
-//                                }
-                                hMethod.compilationInfo.targetCount = hMethod.compilationInfo.callees.size();
-                            }
-
-                            // We're over-budget, so we can only inline callees that have changed to be better than the last inlinee.
-                            if (hMethod.compilationInfo.targetCount <= 0) {
-                                bestBC = hMethod.compilationInfo.lastBestBC;
-                            }
                             for (var entry : hMethod.compilationInfo.callees.entrySet()) {
                                 if (entry.getValue().ignore && !entry.getKey().compilationInfo.hasChanged) {
                                     continue;
@@ -886,13 +873,12 @@ public class CompileQueue {
                             //VMError.guarantee(bestCallee != null || hMethod.compilationInfo.inliningHalted == true);
                             hMethod.compilationInfo.inlineCalleeInfo = bestCalleeInfo;
                             // it may be the case that all callees are ignored and there are no more callee's to evaluate
-                            if (bestCalleeInfo != null || anyChanged) {
+                            if (bestCalleeInfo != null || anyChanged || round == 1) {
                                 allHalted = false;
+                            } else {
+                                // halt if all methods are ignored or none exist and nothing has changed.
+                                hMethod.compilationInfo.inliningHalted = true;
                             }
-                            // Re-halt the root if no changes, but no callees had high enough bc
-//                            if (hMethod.compilationInfo.targetCount <= 0 && bestCalleeInfo==null && !anyChanged) {
-//                                hMethod.compilationInfo.inliningHalted = true;
-//                            }
                         }
                     }
                 });
@@ -1059,7 +1045,7 @@ public class CompileQueue {
             double currentSize = getSize(graph);
             double calleeCost = (currentSize - calleeInfo.sizeBeforeInlining) * (1+ (calleeInfo.depth-1)/4);
             if (inlineScope.invokeCount == 0) {
-                calleeCost = calleeCost / 8.0 ;
+                calleeCost = calleeCost / 4.0 ;
             }
             //double size = calleeCost + root.compilationInfo.sizeLastRound;
             //double size = root.compilationInfo.sizeLastRound + cost;
@@ -1086,16 +1072,13 @@ public class CompileQueue {
             if (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)) {
                 attemptedInlining = true;
                 // If the target method has multiple callsites, each attempt to inline should decrement the budget (since each callsite contributed to the budget).
-                if (--root.compilationInfo.targetCount == 0) {
-                    root.compilationInfo.inliningHalted = true; //TODO is it possible that unrelated inlining into a callee might increase it's benefit and make it newly inlinable?
-                    debugLogging(root,root, Thread.currentThread().threadId() + " callee evaluation limit reached for: "+ root.getName());
-                }
-                double t1 = 5.0; //5.0
-                double t2 = 1.0; //1.0
-                double threshold = t1 * Math.pow(2, (calleeCost/(16 * t2)));
-                debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit*benefitWeight + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold + " target count:"+root.compilationInfo.targetCount + " depth:" +targetCalleeInfo.depth );
+                double t1 = 0.01; //5.0
+                double t2 = 0.5; //1.0
+                double threshold = t1 * Math.pow(2, (calleeCost/(16 * t2))) * (1 + root.compilationInfo.inlineSize/1000) * (1 + root.compilationInfo.inlineCount/10);
+                debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit*benefitWeight + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold  + " depth:" +targetCalleeInfo.depth );
                 if(bc >= threshold){
-                    root.compilationInfo.lastBestBC = bc;
+                    root.compilationInfo.inlineSize += (currentSize - calleeInfo.sizeBeforeInlining);
+                    root.compilationInfo.inlineCount++;
                     debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" committing inlining ");
                     return true;
                 } else {
@@ -1492,7 +1475,7 @@ public class CompileQueue {
             if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee)){
                 String marked = root.compilationInfo.inlineCalleeInfo == null ? "null" : root.compilationInfo.inlineCalleeInfo.method.getQualifiedName();
                 debugLogging(root, callee,Thread.currentThread().threadId()+ " makeNonTrivialInlineDecision skipped "+callee.getQualifiedName() +" marked: "+marked +
-                        " root " + root.getQualifiedName()+ " root target count "+ root.compilationInfo.targetCount);
+                        " root " + root.getQualifiedName());
                 return false;
             }
             // Callee is unmarked, but has changed

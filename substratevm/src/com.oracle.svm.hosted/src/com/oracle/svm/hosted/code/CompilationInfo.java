@@ -51,13 +51,13 @@ public class CompilationInfo {
     public volatile CalleeInfo inlineCalleeInfo; // our target for the current round
     public volatile int sizeLastRound;
     public volatile int sizeBeforeInlinining;
-    public volatile int targetCount; //set to original callee count
+    public volatile int inlineCount;
+    public volatile int inlineSize;
     public AtomicLong callsites = new AtomicLong();
     // Flag that indicates to halt inlining into this as a root.
     public volatile boolean inliningHalted;
     // Flag to indicate that one of this method's callees has been inlined into it.
     public volatile boolean hasChanged;
-    public volatile double lastBestBC = -1;
     // Before using, check callee's hasChanged flag
     public Map<HostedMethod, CalleeInfo> callees = new HashMap<>(8);
 
