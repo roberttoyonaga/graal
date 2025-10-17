@@ -875,9 +875,6 @@ public class CompileQueue {
                             // it may be the case that all callees are ignored and there are no more callee's to evaluate
                             if (bestCalleeInfo != null || anyChanged || round == 1) {
                                 allHalted = false;
-                            } else {
-                                // halt if all methods are ignored or none exist and nothing has changed.
-                                hMethod.compilationInfo.inliningHalted = true;
                             }
                         }
                     }
@@ -1047,8 +1044,7 @@ public class CompileQueue {
             if (inlineScope.invokeCount == 0) {
                 calleeCost = calleeCost / 4.0 ;
             }
-            //double size = calleeCost + root.compilationInfo.sizeLastRound;
-            //double size = root.compilationInfo.sizeLastRound + cost;
+            double combinedSize = calleeCost + root.compilationInfo.inlineSize/2;
 
             // *** This is just for debugging
             /*if (evaluatingFirstLevelCallee && calleeCost < 0){
@@ -1073,8 +1069,8 @@ public class CompileQueue {
                 attemptedInlining = true;
                 // If the target method has multiple callsites, each attempt to inline should decrement the budget (since each callsite contributed to the budget).
                 double t1 = 0.01; //5.0
-                double t2 = 0.5; //1.0
-                double threshold = t1 * Math.pow(2, (calleeCost/(16 * t2))) * (1 + root.compilationInfo.inlineSize/1000) * (1 + root.compilationInfo.inlineCount/10);
+                double t2 = 1; //1.0
+                double threshold = t1 * Math.pow(2, (combinedSize/(16 * t2)));// * (1 + root.compilationInfo.inlineSize/1000) * (1 + root.compilationInfo.inlineCount/10);
                 debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit*benefitWeight + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold  + " depth:" +targetCalleeInfo.depth );
                 if(bc >= threshold){
                     root.compilationInfo.inlineSize += (currentSize - calleeInfo.sizeBeforeInlining);
