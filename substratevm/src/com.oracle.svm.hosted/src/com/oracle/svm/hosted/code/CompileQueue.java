@@ -1046,23 +1046,8 @@ public class CompileQueue {
             }
             double combinedSize = calleeCost + root.compilationInfo.inlineSize/2;
 
-            // *** This is just for debugging
-            /*if (evaluatingFirstLevelCallee && calleeCost < 0){
-                System.out.println(root.getQualifiedName() +" currentSize: "+ currentSize   +" size last round: "+ root.compilationInfo.sizeLastRound);
-                System.out.println(" root.compilationInfo.sizeBeforeInlinining:" + root.compilationInfo.sizeBeforeInlinining);
-                System.out.println("------");
-            }*/
-            //VMError.guarantee(!evaluatingFirstLevelCallee || calleeCost >= 0 );
-
-//            debugLogging(root, callee,"currentSize: "+ currentSize+ " calleeCost:"+ calleeCost +" onthefly calleeCost:"+ inlineScope.cost +"  Size last round: "+ root.compilationInfo.sizeLastRound +" sizeBeforeInlinining: "+  root.compilationInfo.sizeBeforeInlinining);
-//            if(root.compilationInfo.sizeBeforeInlinining != calleeInfo.sizeBeforeInlining){
-//                System.out.println("~*~*~*~*~ sizeBeforeInlinining: "+  root.compilationInfo.sizeBeforeInlinining + " new sizeBeforeInlining: "+ calleeInfo.sizeBeforeInlining);
-//                System.out.println("~*~*~*~*~ callee: "+ calleeInfo.method.getQualifiedName() + " is target callee:" + (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)));
-//            }
-
             double benefitWeight = 1.0;
             double offset = 4.0; //  0.125
-//            double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * root.compilationInfo.callsites.get()/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
             double bc = /*(calleeInfo.loopDepth + 1) * */ (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
             // Only inline the top method marked from previous round. On round 1 we don't inline anything.
             if (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)) {
@@ -1072,10 +1057,16 @@ public class CompileQueue {
                 double t2 = 1; //1.0
                 double threshold = t1 * Math.pow(2, (combinedSize/(16 * t2)));// * (1 + root.compilationInfo.inlineSize/1000) * (1 + root.compilationInfo.inlineCount/10);
                 debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit*benefitWeight + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold  + " depth:" +targetCalleeInfo.depth );
-                if(bc >= threshold){
+                if(bc >= threshold || callee.compilationInfo.callsites.get() == 1){
                     root.compilationInfo.inlineSize += (currentSize - calleeInfo.sizeBeforeInlining);
                     root.compilationInfo.inlineCount++;
                     debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" committing inlining ");
+                    // Commit the callsite count updates for 2nd level callees being copied into the root scope.
+                    for (var entry : inlineScope.newCallees.entrySet()) {
+                        HostedMethod hMethod = (HostedMethod) entry.getKey();
+                        hMethod.compilationInfo.callsites.addAndGet(entry.getValue());
+                    }
+                    callee.compilationInfo.callsites.decrementAndGet(); // inlining into this callsite removes it.
                     return true;
                 } else {
                     // At first failure to beat threshold, we halt inlining in this root. We've run out of budget.
@@ -1084,13 +1075,6 @@ public class CompileQueue {
                 }
             } else {
                 // We're either evaluating 1st level callees that are not our target or 2nd level callees
-
-                // *** For debugging only
-                if (!evaluatingFirstLevelCallee && targetCalleeInfo != null && !targetCalleeInfo.method.equals(caller)) {
-                    // How can we be evaluating a second level callee if the caller is not this round's target?
-                    System.out.println(targetCalleeInfo.method.getName() + " " + root.getName() + " " + caller.getName() + " " + callee.getName());
-                    VMError.guarantee(false);
-                }
 
                 boolean secondLevel = !evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(caller);
 
@@ -1480,6 +1464,14 @@ public class CompileQueue {
         } else if (root.compilationInfo.inlineCalleeInfo != null && root.compilationInfo.inlineCalleeInfo.method.equals(caller)) {
             // We may evaluate the 2nd level callees of the marked callee. On round 1 the target callee is null.
             //debugLogging(root,callee,"makeNonTrivialInlineDecision 2nd level true");
+            PEGraphDecoder.PEMethodScope targetScope = callerScope;
+            VMError.guarantee(targetScope.method.equals(root.compilationInfo.inlineCalleeInfo.method), "The current scope must be that of the target method");
+            if (targetScope.newCallees.containsKey(callee)){
+                int newCount = targetScope.newCallees.get(callee) + 1;
+                targetScope.newCallees.put(callee,newCount);
+            } else {
+                targetScope.newCallees.put(callee, 1);
+            }
             return true;
         } else {
             // Don't commit more than one inlining per round.

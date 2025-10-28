@@ -32,6 +32,7 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Deque;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
@@ -146,6 +147,7 @@ public class GraphDecoder {
         public int evaluations = 0; // *** for debugging
         public int improvedStampCount = 0;
         public int invokeCount = 0;
+        public Map<ResolvedJavaMethod, Integer> newCallees = new HashMap<>(4);
 
         @SuppressWarnings("unchecked")
         protected MethodScope(LoopScope callerLoopScope, StructuredGraph graph, EncodedGraph encodedGraph, LoopExplosionPlugin.LoopExplosionKind loopExplosion) {
