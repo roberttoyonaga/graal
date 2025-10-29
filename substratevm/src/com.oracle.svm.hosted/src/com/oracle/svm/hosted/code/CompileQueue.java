@@ -39,7 +39,9 @@ import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import com.oracle.svm.core.jdk.UninterruptibleUtils;
 import jdk.graal.compiler.nodes.GraphDecoder;
 import org.graalvm.nativeimage.ImageSingletons;
 
@@ -1048,12 +1050,12 @@ public class CompileQueue {
 
             double benefitWeight = 1.0;
             double offset = 4.0; //  0.125
-            double bc = /*(calleeInfo.loopDepth + 1) * */ (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
+            //double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
+            double bc = (offset +  inlineScope.benefit*benefitWeight) / calleeCost;
             // Only inline the top method marked from previous round. On round 1 we don't inline anything.
             if (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)) {
                 attemptedInlining = true;
-                // If the target method has multiple callsites, each attempt to inline should decrement the budget (since each callsite contributed to the budget).
-                double t1 = 0.01; //5.0
+                double t1 = 0.5; //5.0
                 double t2 = 1; //1.0
                 double threshold = t1 * Math.pow(2, (combinedSize/(16 * t2)));// * (1 + root.compilationInfo.inlineSize/1000) * (1 + root.compilationInfo.inlineCount/10);
                 debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit*benefitWeight + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold  + " depth:" +targetCalleeInfo.depth );
@@ -1446,7 +1448,11 @@ public class CompileQueue {
 
         // Check if the caller is the root method. Otherwise, we may need to stop here since we only want to inline once per round.
         if(evaluatingFirstLevelCallee) {
-            if (root.compilationInfo.inlineCalleeInfo != null && root.compilationInfo.inlineCalleeInfo.method.equals(callee)){
+            if (callee.compilationInfo.callsites.get() == 1) {
+                // only one callsite, proceed with inlining
+                updateCallsiteCountRecords(callerScope, callee);
+                return true;
+            } else if (root.compilationInfo.inlineCalleeInfo != null && root.compilationInfo.inlineCalleeInfo.method.equals(callee)){
                 // We're dealing with the method marked for inlining this round.
                 //debugLogging(root,callee, "makeNonTrivialInlineDecision true.");
                 return true;
@@ -1464,19 +1470,22 @@ public class CompileQueue {
         } else if (root.compilationInfo.inlineCalleeInfo != null && root.compilationInfo.inlineCalleeInfo.method.equals(caller)) {
             // We may evaluate the 2nd level callees of the marked callee. On round 1 the target callee is null.
             //debugLogging(root,callee,"makeNonTrivialInlineDecision 2nd level true");
-            PEGraphDecoder.PEMethodScope targetScope = callerScope;
-            VMError.guarantee(targetScope.method.equals(root.compilationInfo.inlineCalleeInfo.method), "The current scope must be that of the target method");
-            if (targetScope.newCallees.containsKey(callee)){
-                int newCount = targetScope.newCallees.get(callee) + 1;
-                targetScope.newCallees.put(callee,newCount);
-            } else {
-                targetScope.newCallees.put(callee, 1);
-            }
+            VMError.guarantee(callerScope.method.equals(root.compilationInfo.inlineCalleeInfo.method), "The current scope must be that of the target method");
+            updateCallsiteCountRecords(callerScope, callee);
             return true;
         } else {
             // Don't commit more than one inlining per round.
             //debugLogging(root,callee, "makeNonTrivialInlineDecision false");
             return false;
+        }
+    }
+
+    private static void updateCallsiteCountRecords(PEGraphDecoder.PEMethodScope targetScope, HostedMethod callee) {
+        if (targetScope.newCallees.containsKey(callee)){
+            int newCount = targetScope.newCallees.get(callee) + 1;
+            targetScope.newCallees.put(callee,newCount);
+        } else {
+            targetScope.newCallees.put(callee, 1);
         }
     }
 
