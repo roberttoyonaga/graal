@@ -1051,6 +1051,7 @@ public class CompileQueue {
             double benefitWeight = 1.0;
             double offset = 4.0; //  0.125
             //double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
+            //double bc = (offset + inlineScope.benefit*benefitWeight) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
             double bc = (offset +  inlineScope.benefit*benefitWeight) / calleeCost;
             // Only inline the top method marked from previous round. On round 1 we don't inline anything.
             if (evaluatingFirstLevelCallee && targetCalleeInfo != null && targetCalleeInfo.method.equals(callee)) {
@@ -1060,8 +1061,10 @@ public class CompileQueue {
                 double threshold = t1 * Math.pow(2, (combinedSize/(16 * t2)));// * (1 + root.compilationInfo.inlineSize/1000) * (1 + root.compilationInfo.inlineCount/10);
                 debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit*benefitWeight + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold  + " depth:" +targetCalleeInfo.depth );
                 if(bc >= threshold || callee.compilationInfo.callsites.get() == 1){
-                    root.compilationInfo.inlineSize += (currentSize - calleeInfo.sizeBeforeInlining);
-                    root.compilationInfo.inlineCount++;
+                    if ( callee.compilationInfo.callsites.get() != 1) { // these inlines don't count
+                        root.compilationInfo.inlineSize += (currentSize - calleeInfo.sizeBeforeInlining);
+                        root.compilationInfo.inlineCount++;
+                    }
                     debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" committing inlining ");
                     // Commit the callsite count updates for 2nd level callees being copied into the root scope.
                     for (var entry : inlineScope.newCallees.entrySet()) {
