@@ -48,11 +48,8 @@ import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.code.CalleeInfo;
 
 public class CompilationInfo {
-    public volatile CalleeInfo inlineCalleeInfo; // our target for the current round
     public volatile int sizeLastRound;
     public volatile int sizeBeforeInlinining;
-    public volatile int inlineCount;
-    public volatile int inlineSize;
     public AtomicLong callsites = new AtomicLong();
     // Flag that indicates to halt inlining into this as a root.
     public volatile boolean inliningHalted;
