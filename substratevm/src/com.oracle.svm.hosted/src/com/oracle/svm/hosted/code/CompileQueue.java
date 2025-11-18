@@ -1420,29 +1420,7 @@ public class CompileQueue {
             // Even if we've run out of budget we still need to publish the new graphs
             if (decoder.inlinedDuringDecoding) {
                 CanonicalizerPhase.create().apply(graph, providers);
-
-                if (!method.compilationInfo.isTrivialInliningDisabled() && graph.getNodeCount() > SubstrateOptions.MaxNodesAfterTrivialInlining.getValue()) {
-                    /*
-                     * The method is too larger after inlining. There is no good way of just
-                     * inlining some but not all trivial callees, because inlining is done during
-                     * graph decoding so the total graph size is not known until the whole graph is
-                     * decoded. We therefore disable all trivial inlining for the method. Except
-                     * callees that are annotated as "always inline" - therefore we need to pretend
-                     * that there was inlining progress, which triggers another round of inlining
-                     * where only "always inline" methods are inlined.
-                     */
-                    method.compilationInfo.setTrivialInliningDisabled();
-                    inliningProgress = true;
-
-                } else {
-                    /*
-                     * If we publish the new graph immediately, it can be picked up by other threads
-                     * trying to inline this method, and that would make the inlining
-                     * non-deterministic. This is why we are saving graphs to be published at the
-                     * end of each round.
-                     */
-                    unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
-                }
+                unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
             } else {
                 debugLogging(method,method, method.getQualifiedName() +" didn't inline this round");
             }
@@ -1476,13 +1454,7 @@ public class CompileQueue {
             // Even if we've run out of budget we still need to publish the new graphs
             if (inliningPlugin.inlinedDuringDecoding) {
                 CanonicalizerPhase.create().apply(graph, providers);
-                if (!method.compilationInfo.isTrivialInliningDisabled() && graph.getNodeCount() > SubstrateOptions.MaxNodesAfterTrivialInlining.getValue()) {
-                    method.compilationInfo.setTrivialInliningDisabled();
-                    inliningProgress = true;
-
-                } else {
-                    unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
-                }
+                unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
             }
         } catch (Throwable ex) {
             throw debug.handle(ex);
