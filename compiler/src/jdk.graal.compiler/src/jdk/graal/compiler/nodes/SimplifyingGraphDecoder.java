@@ -349,7 +349,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
         assert c != node : "unnecessary call";
         try (DebugCloseable position = graph.withNodeSourcePosition(node)) {
             Node canonical = c == null ? canonicalizeFixedNodeToNull(node, methodScope) : c;
-            if (!canonical.isAlive()) { // !isAlive just means it hasent been added to the graph yet.
+            if (!canonical.isAlive()) {
                 assert !canonical.isDeleted();
                 canonical = graph.addOrUniqueWithInputs(canonical);
                 if (canonical instanceof FixedWithNextNode) {
