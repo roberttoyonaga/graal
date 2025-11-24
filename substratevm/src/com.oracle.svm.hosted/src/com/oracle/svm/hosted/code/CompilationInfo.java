@@ -54,7 +54,7 @@ public class CompilationInfo {
     public volatile boolean inliningHalted;
     // Flag to indicate that one of this method's callees has been inlined into it.
     public volatile boolean hasChanged;
-    // Before using, check callee's hasChanged flag
+    // Callees that have been evaluated but did not meet the inlining threshold.
     public Map<HostedMethod, CalleeInfo> callees = new HashMap<>(8);
 
 
