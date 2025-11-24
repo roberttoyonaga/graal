@@ -744,7 +744,6 @@ public class HostInliningPhase extends AbstractInliningPhase {
      */
     private StructuredGraph exploreAndPrepareGraph(InliningPhaseContext context, CallTree root, int exploreRound, int exploreBudget) {
         assert !root.isExplored();
-        // *** At this point we already know the call is inlinable.
 
         root.children = exploreInlinableCall(context, root, exploreRound, exploreBudget);
         if (root.children == null) {
@@ -757,7 +756,6 @@ public class HostInliningPhase extends AbstractInliningPhase {
             return null;
         }
 
-        // *** Look up and copy the graph, not encoded
         StructuredGraph graph = lookupGraph(context, root.invoke, getTargetMethod(context, root));
         StructuredGraph mutableGraph = (StructuredGraph) graph.copy((map) -> {
             for (CallTree callee : root.children) {
@@ -765,9 +763,7 @@ public class HostInliningPhase extends AbstractInliningPhase {
             }
         }, context.graph.getDebug());
 
-        // *** This set will hold the nodes we need to visit with the canonicalizer phase
         EconomicSet<Node> canonicalizableNodes = EconomicSet.create();
-        // *** Try improving param stamps with argument stamps
         enhanceParameters(canonicalizableNodes, mutableGraph, root);
 
         int currentGraphSize;
@@ -776,7 +772,6 @@ public class HostInliningPhase extends AbstractInliningPhase {
 
         boolean incomplete = false;
 
-        // *** Repeat inlining until steady state
         while (inlineIndex > prevInlineIndex) { // there has been progress
             prevInlineIndex = inlineIndex;
 
@@ -838,11 +833,9 @@ public class HostInliningPhase extends AbstractInliningPhase {
 
     private static void enhanceParameters(EconomicSet<Node> canonicalizableNodes, StructuredGraph graph, CallTree root) {
         for (ParameterNode formalParameter : graph.getNodes(ParameterNode.TYPE).snapshot()) {
-            // *** Align params with args
             int index = formalParameter.index();
             ValueNode actualParameter = root.invoke.callTarget().arguments().get(index);
             if (actualParameter.isConstant()) {
-                // *** Eliminate if constant
                 ConstantNode constant = (ConstantNode) actualParameter.copyWithInputs(false);
                 ConstantNode uniqueConstant = graph.unique(constant);
                 // The source position comes from the containing graph so it's not valid in the
@@ -850,11 +843,10 @@ public class HostInliningPhase extends AbstractInliningPhase {
                 uniqueConstant.clearNodeSourcePosition();
                 formalParameter.replaceAndDelete(uniqueConstant);
 
-                // *** Find all nodes that use this param and add to canonicalize collection
                 enqueueUsages(canonicalizableNodes, uniqueConstant);
 
             } else {
-                // *** Try to improve
+
                 Stamp originalStamp = formalParameter.stamp(NodeView.DEFAULT);
                 Stamp improvedStamp = originalStamp.tryImproveWith(actualParameter.stamp(NodeView.DEFAULT));
 
@@ -863,7 +855,6 @@ public class HostInliningPhase extends AbstractInliningPhase {
                     assert originalStamp.tryImproveWith(improvedStamp) != null;
                     formalParameter.setStamp(improvedStamp);
 
-                    // *** Find all nodes that use this param and add to canonicalize collection
                     enqueueUsages(canonicalizableNodes, formalParameter);
                 }
             }
