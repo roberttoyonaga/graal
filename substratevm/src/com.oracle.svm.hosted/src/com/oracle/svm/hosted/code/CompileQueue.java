@@ -127,6 +127,7 @@ import jdk.graal.compiler.nodes.graphbuilderconf.InlineInvokePlugin;
 import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
 import jdk.graal.compiler.nodes.spi.CoreProviders;
 import jdk.graal.compiler.options.OptionValues;
+import jdk.graal.compiler.phases.contract.NodeCostUtil;
 import jdk.graal.compiler.phases.OptimisticOptimizations;
 import jdk.graal.compiler.phases.Phase;
 import jdk.graal.compiler.phases.PhaseSuite;
@@ -1001,13 +1002,12 @@ public class CompileQueue {
         /** The purpose of this override is to calculate the size before inlining. It will be used later to calculate the callee cost.*/
         @Override
         protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments) {
-            int currentSize = getSize(graph);
+            int currentSize = NodeCostUtil.computeGraphSize(graph);
             PEMethodScope scope =  methodScope;
             while(scope.caller != null) {
                 scope = scope.caller;
             }
             HostedMethod root = (HostedMethod) scope.method;
-            root.compilationInfo.sizeBeforeInlinining = currentSize;
             HostedMethod callee = (HostedMethod) inlineInfo.getMethodToInline();
             if (!root.compilationInfo.callees.containsKey(callee)) {
                 root.compilationInfo.callees.put(callee, new CalleeInfo(callee, round)); // If we end up inlining, this CalleeInfo will not survive to the next round
@@ -1022,12 +1022,11 @@ public class CompileQueue {
             }
             HostedMethod root = caller;
             VMError.guarantee(evaluatingFirstLevelCallee, "we should not be evaluating beyond the 1st level");
-            VMError.guarantee(inlineScope.cost > 0);
 
             CalleeInfo calleeInfo = root.compilationInfo.callees.get(callee);
             VMError.guarantee(calleeInfo != null, "This should have been created in doInline");
 
-            double currentSize = getSize(graph);
+            double currentSize = NodeCostUtil.computeGraphSize(graph);
             double calleeCost = (currentSize - calleeInfo.sizeBeforeInlining);//* (1+ (calleeInfo.depth-1)/4);
             if (inlineScope.invokeCount == 0) {
                 calleeCost = calleeCost / 4.0 ;
@@ -1137,9 +1136,6 @@ public class CompileQueue {
         }
 
         protected void registerNode(GraphDecoder.LoopScope loopScope, int nodeOrderId, Node node, boolean allowOverwrite, boolean allowNull){
-            if (node != null && node.isAlive()) {
-                loopScope.methodScope.cost += node.estimatedNodeSize().value; // Method scope should be the callee the loop belongs to
-            }
             super.registerNode(loopScope, nodeOrderId, node, allowOverwrite, allowNull);
         }
     }
@@ -1415,12 +1411,6 @@ public class CompileQueue {
         if (!evaluatingFirstLevelCallee) {
             return false;
         }
-
-        /*// First pass round 0 is to collect callsite data
-        if (round == 0) {
-            callee.compilationInfo.callsites.incrementAndGet();
-            return false;
-        }*/
 
         // All other rounds
         if (singleCallsiteMethods.containsKey(callee)) {
@@ -2017,28 +2007,4 @@ public class CompileQueue {
     public Suites getRegularSuites() {
         return regularSuites;
     }
-
-
-    public static int getSize(StructuredGraph graph) {
-        /*int numInvokes = 0;
-        int numOthers = 0;
-        for (Node n : graph.getNodes()) {
-            if (n instanceof jdk.graal.compiler.nodes.StartNode || n instanceof ParameterNode || n instanceof jdk.graal.compiler.nodes.FullInfopointNode || n instanceof jdk.graal.compiler.nodes.spi.ValueProxy || n instanceof jdk.graal.compiler.nodes.extended.ValueAnchorNode || n instanceof FrameState) {
-                continue;
-            }
-            if (n instanceof MethodCallTargetNode || n instanceof jdk.graal.compiler.replacements.nodes.MethodHandleWithExceptionNode) {
-                numInvokes++;
-            } else {
-                numOthers++;
-            }
-        }
-
-        return numInvokes*8 + numOthers*2;*/
-        int currentSize = 0;
-        for (Node n : graph.getNodes()) {
-            currentSize += n.estimatedNodeSize().value;
-        }
-        return currentSize;
-    }
-
 }

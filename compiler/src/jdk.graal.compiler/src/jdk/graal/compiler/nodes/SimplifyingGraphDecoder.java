@@ -200,8 +200,6 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
             if (canonical != node) {
                 // canonical's cost will be counted in NonTrivialInliningGraphDecoder.registerNode
                 methodScope.benefit++;
-                // Subtract the already accounted stale node's cost (unused now)
-                methodScope.cost -= node.estimatedNodeSize().value;
                 handleCanonicalization(loopScope, nodeOrderId, node, canonical, methodScope);
             }
         }

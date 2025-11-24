@@ -49,7 +49,6 @@ import com.oracle.svm.hosted.code.CalleeInfo;
 
 public class CompilationInfo {
     public volatile int sizeLastRound;
-    public volatile int sizeBeforeInlinining;
     public AtomicLong callsites = new AtomicLong();
     // Flag that indicates to halt inlining into this as a root.
     public volatile boolean inliningHalted;
