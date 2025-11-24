@@ -1032,7 +1032,7 @@ public class CompileQueue {
 
         /** The purpose of this override is to calculate the size before inlining. It will be used later to calculate the callee cost.*/
         @Override
-        protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments, int improvedStamps) {
+        protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments) {
             int currentSize = getSize(graph);
             PEMethodScope scope =  methodScope;
             while(scope.caller != null) {
@@ -1045,46 +1045,7 @@ public class CompileQueue {
                 root.compilationInfo.callees.put(callee, new CalleeInfo(callee, round)); // If we end up inlining, this CalleeInfo will not survive to the next round
             }
             root.compilationInfo.callees.get(callee).sizeBeforeInlining = currentSize; // there should not be recursion (due to multiple callsites at diff levels) since we only go one level deep
-            return super.doInline(methodScope,loopScope,invokeData,inlineInfo,arguments, improvedStamps);
-        }
-
-        /** This method is partially based on HostedInliningPhase#enhanceParameters. */
-        @Override
-        protected int canImproveStamps(InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments, PEMethodScope methodScope) {
-            int count = 0;
-            ResolvedJavaMethod inlineMethod = inlineInfo.getMethodToInline();
-
-            jdk.graal.compiler.core.common.type.Stamp[] paramStamps = jdk.graal.compiler.core.common.type.StampFactory.createParameterStamps(graph.getAssumptions(), inlineMethod);
-            assert paramStamps.length == arguments.length : "Invoke arguments and parameters have different counts";
-            for (int i = 0; i < paramStamps.length; i++) {
-
-                jdk.graal.compiler.core.common.type.Stamp argStamp = arguments[i].stamp(jdk.graal.compiler.nodes.NodeView.DEFAULT);
-                ValueNode actualParameter = arguments[i];
-                try {
-                    if (actualParameter.isConstant()) {
-                        count++;
-                    } else {
-                        jdk.graal.compiler.core.common.type.Stamp originalStamp = paramStamps[i];
-                        jdk.graal.compiler.core.common.type.Stamp improvedStamp = originalStamp.tryImproveWith(argStamp);
-
-                        if (improvedStamp != null) {
-                            if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug
-                                System.out.println("----"+ Thread.currentThread().threadId()+" Improved: " + originalStamp + " " + improvedStamp);
-                            }
-                            count++;
-                            assert !originalStamp.equals(improvedStamp);
-                            assert originalStamp.tryImproveWith(improvedStamp) != null;
-                        }
-                    }
-                } catch (java.lang.ClassCastException e) {// todo this is a hack
-//                    throw new RuntimeException( paramStamps[i]+ " " + argStamp+" ||| " + e.getMessage() ); // java.lang.Object  vs i64 Why?
-                    return 0;
-                }
-            }
-            if (inlineMethod.getName().contains("methodToBeInlined")) { // *** debug
-                System.out.println("----"+ Thread.currentThread().threadId()+" Number of params improved:" + count);
-            }
-            return count;
+            return super.doInline(methodScope,loopScope,invokeData,inlineInfo,arguments);
         }
 
         boolean canInline(PEMethodScope inlineScope, HostedMethod caller, HostedMethod callee, boolean evaluatingFirstLevelCallee, PEMethodScope callerScope) {
@@ -1105,7 +1066,6 @@ public class CompileQueue {
             }
 
             double offset = 1.0;
-//            double bc = (offset + inlineScope.improvedStampCount + inlineScope.benefit*benefitWeight) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
             double bc = (offset + inlineScope.benefit) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
 //            double bc = (offset +  inlineScope.benefit) / calleeCost;
             // Only inline the top method marked from previous round. On round 1 we don't inline anything.
