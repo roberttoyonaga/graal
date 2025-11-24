@@ -157,11 +157,6 @@ import jdk.vm.ci.meta.VMConstant;
 import com.oracle.svm.hosted.code.CalleeInfo;
 
 public class CompileQueue {
-    public static void debugLogging(HostedMethod caller, HostedMethod callee, String message){
-        if(callee.getQualifiedName().contains("methodToBeInlined")|| callee.getQualifiedName().contains("doWork") || caller.getQualifiedName().contains("java.lang.String.charAt")){
-            System.out.println(message);
-        }
-    }
 
     public interface ParseFunction {
         void parse(DebugContext debug, HostedMethod method, CompileReason reason, RuntimeConfiguration config);
@@ -889,32 +884,6 @@ public class CompileQueue {
         // Gather all single callsite methods
         ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods = new ConcurrentHashMap<>();
         round = 0;
-        // --- --- --- *** doesnt seem to help
-        // Reset callsite counts
-//        universe.getMethods().forEach(method -> {
-//            for (MultiMethod multiMethod : method.getAllMultiMethods()) {
-//                HostedMethod hMethod = (HostedMethod) multiMethod;
-//                if (hMethod.compilationInfo.getCompilationGraph() != null) {
-//                    hMethod.compilationInfo.callsites.set(0); //reset
-//                }
-//            }
-//        });
-//        // Do a first pass to find single callsite methods
-//        try (Indent ignored = debug.logAndIndent("==== Single Callsite first pass %d%n", round)) {
-//            runOnExecutor(() -> {
-//                universe.getMethods().forEach(method -> {
-//                    assert method.isOriginalMethod();
-//                    for (MultiMethod multiMethod : method.getAllMultiMethods()) {
-//                        HostedMethod hMethod = (HostedMethod) multiMethod;
-//                        if (hMethod.compilationInfo.getCompilationGraph() != null) {
-//                            executor.execute(new SingleCallsiteInlineTask(hMethod, singleCallsiteMethods));
-//                        }
-//                    }
-//                });
-//            });
-//        }
-//        VMError.guarantee(singleCallsiteMethods.isEmpty());
-        // --- --- --- *** doesnt seem to help
 
         // Find all methods with only 1 callsite
         universe.getMethods().forEach(method -> {
@@ -1026,7 +995,6 @@ public class CompileQueue {
         @Override
         public void notifyAfterInline(ResolvedJavaMethod methodToInline) {
             inlinedDuringDecoding = true;
-            //System.out.println("inlined:" + ((HostedMethod)methodToInline).getQualifiedName());
             VMError.guarantee(singleCallsiteMethods.containsKey((HostedMethod) methodToInline));
             singleCallsiteMethods.put((HostedMethod) methodToInline, true); // We cannot remove it until end of round
         }
@@ -1115,9 +1083,7 @@ public class CompileQueue {
             double t1 = 5; //5.0
             double t2 = 1; //1.0
             double threshold = t1 * Math.pow(2, (calleeCost/(16 * t2)));
-            debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" |||  calleeBenefit:"+ inlineScope.benefit + " calleeCost:"+ inlineScope.cost + " callerCost:"+ caller.compilationInfo.sizeLastRound+ " Threshold:" +threshold );
             if(bc >= threshold){
-                debugLogging(caller,callee,"-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" committing inlining ");
                 // Commit the callsite count updates for 2nd level callees being copied into the root scope.
                 for (var entry : inlineScope.newCallees.entrySet()) {
                     HostedMethod hMethod = (HostedMethod) entry.getKey();
@@ -1128,7 +1094,6 @@ public class CompileQueue {
                 root.compilationInfo.callees.remove(callee);
                 return true;
             } else {
-                debugLogging(caller,callee, "-----"+ Thread.currentThread().threadId()+" finishInlining ||| Caller: " + caller.getQualifiedName() + " Callee: "+ callee.getQualifiedName()+" ****** killing CFN ****** ");
                 // If we fail to inline, the CalleeInfo remains in the root's set, so we don't retrial it in future rounds unless it's changed
                 return false;
             }
@@ -1372,7 +1337,6 @@ public class CompileQueue {
         var providers = runtimeConfig.lookupBackend(method).getProviders();
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
         try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
-            debugLogging(method,method,"*-*-*-*-*- Starting root: "+Thread.currentThread().threadId()+" "+method.getQualifiedName()+ " Callsites: "+method.compilationInfo.callsites.get());
             var inliningPlugin = new NonTrivialInliningPlugin();
             var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin);
             new NonTrivialInlinePhase(decoder, method).apply(graph);
@@ -1381,8 +1345,6 @@ public class CompileQueue {
             if (decoder.inlinedDuringDecoding) {
                 CanonicalizerPhase.create().apply(graph, providers);
                 unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
-            } else {
-                debugLogging(method,method, method.getQualifiedName() +" didn't inline this round");
             }
 
             /* Compute new root size with new inlined nodes. It's okay to do this once per round since
@@ -1394,7 +1356,6 @@ public class CompileQueue {
             }
             // Use the same fallback as the paper
             if (method.compilationInfo.sizeLastRound > 50000) {
-                System.out.println("!!! <*> FALLBACK HIT  <*> !!!");
                 method.compilationInfo.inliningHalted = true;
             }
 
@@ -1480,8 +1441,6 @@ public class CompileQueue {
         if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).lastRoundUpdated != round){
             //we need lastRoundUpdated  incase there are multiple callsites. If it was updated the current round we
             // know that we should evaluate again anyway bc another callsite added the entry the current round and the data is related to a different callsite. The downside is that we might end up doing extra work.
-            debugLogging(root, callee,Thread.currentThread().threadId()+ " makeNonTrivialInlineDecision skipped "+callee.getQualifiedName() +
-                    " root " + root.getQualifiedName());
             return false;
         }
 
