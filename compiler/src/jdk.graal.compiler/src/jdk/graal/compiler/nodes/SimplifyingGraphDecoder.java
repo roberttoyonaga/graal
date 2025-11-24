@@ -388,10 +388,10 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
     @Override
     @SuppressWarnings("try")
     protected Node handleFloatingNodeBeforeAdd(MethodScope methodScope, LoopScope loopScope, Node node) {
-        if (node instanceof ValueNode) { // *** try to improve stamps
+        if (node instanceof ValueNode) {
             ((ValueNode) node).inferStamp();
         }
-        if (node instanceof Canonicalizable) { // *** try to canonicalize after improving stamps
+        if (node instanceof Canonicalizable) {
             try (DebugCloseable context = graph.withNodeSourcePosition(node)) {
                 Node canonical = ((Canonicalizable) node).canonical(canonicalizerTool);
                 if (canonical == null) {

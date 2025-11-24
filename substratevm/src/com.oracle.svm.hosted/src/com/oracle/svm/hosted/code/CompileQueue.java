@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2012, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025, 2025, IBM Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -954,7 +955,8 @@ public class CompileQueue {
         public void notifyAfterInline(ResolvedJavaMethod methodToInline) {
             inlinedDuringDecoding = true;
             VMError.guarantee(singleCallsiteMethods.containsKey((HostedMethod) methodToInline));
-            singleCallsiteMethods.put((HostedMethod) methodToInline, true); // We cannot remove it until end of round
+            // To avoid races we must delay removal until the end of the round. Only mark for now.
+            singleCallsiteMethods.put((HostedMethod) methodToInline, true);
         }
     }
 
@@ -1012,7 +1014,8 @@ public class CompileQueue {
             if (!root.compilationInfo.callees.containsKey(callee)) {
                 root.compilationInfo.callees.put(callee, new CalleeInfo(callee, round)); // If we end up inlining, this CalleeInfo will not survive to the next round
             }
-            root.compilationInfo.callees.get(callee).sizeBeforeInlining = currentSize; // there should not be recursion (due to multiple callsites at diff levels) since we only go one level deep
+            // Stash the graph size in the callee info. Recursion (due to multiple callsites at different depths) should not be a problem since we only go one level deep.
+            root.compilationInfo.callees.get(callee).sizeBeforeInlining = currentSize;
             return super.doInline(methodScope,loopScope,invokeData,inlineInfo,arguments);
         }
 
@@ -1033,11 +1036,11 @@ public class CompileQueue {
             }
 
             double offset = 1.0;
-            double bc = (offset + inlineScope.benefit) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost; // If the caller is called from many places it's more worth optimizing it. We care about the # of callsites in the root because if its 2nd level callee the caller is already gone
+            double bc = (offset + inlineScope.benefit) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost;
 //            double bc = (offset +  inlineScope.benefit) / calleeCost;
             // Only inline the top method marked from previous round. On round 1 we don't inline anything.
-            double t1 = 5; //5.0
-            double t2 = 1; //1.0
+            double t1 = 5;
+            double t2 = 1;
             double threshold = t1 * Math.pow(2, (calleeCost/(16 * t2)));
             if(bc >= threshold){
                 // Commit the callsite count updates for 2nd level callees being copied into the root scope.
@@ -1045,12 +1048,13 @@ public class CompileQueue {
                     HostedMethod hMethod = (HostedMethod) entry.getKey();
                     hMethod.compilationInfo.callsites.addAndGet(entry.getValue());
                 }
-                callee.compilationInfo.callsites.decrementAndGet(); // inlining into this callsite removes it.
+                // inlining into this callsite removes it.
+                callee.compilationInfo.callsites.decrementAndGet();
                 // Remove callee from the "seen" set
                 root.compilationInfo.callees.remove(callee);
                 return true;
             } else {
-                // If we fail to inline, the CalleeInfo remains in the root's set, so we don't retrial it in future rounds unless it's changed
+                // If we fail to inline, the CalleeInfo remains in the root's set, so we don't retrial it in future rounds unless it's changed.
                 return false;
             }
         }
@@ -1082,57 +1086,6 @@ public class CompileQueue {
             }
             inlinedDuringDecoding = true;
             super.finishInlining(inlineScope);
-        }
-
-        // Directly copied from IBA decoder
-        private void killControlFlowNodes(PEMethodScope inlineScope, jdk.graal.compiler.nodes.FixedNode start) {
-            Deque<Node> workList = null;
-            Node cur = start;
-            while (true) {
-                assert !cur.isDeleted() : cur;
-                assert graph.isNew(inlineScope.methodStartMark, cur) : cur;
-
-                Node next = null;
-                if (cur instanceof jdk.graal.compiler.nodes.FixedWithNextNode) {
-                    next = ((jdk.graal.compiler.nodes.FixedWithNextNode) cur).next();
-                } else if (cur instanceof jdk.graal.compiler.nodes.ControlSplitNode) {
-                    for (Node successor : cur.successors()) {
-                        if (next == null) {
-                            next = successor;
-                        } else {
-                            if (workList == null) {
-                                workList = new ArrayDeque<>();
-                            }
-                            workList.push(successor);
-                        }
-                    }
-                } else if (cur instanceof jdk.graal.compiler.nodes.AbstractEndNode) {
-                    next = ((jdk.graal.compiler.nodes.AbstractEndNode) cur).merge();
-                } else if (cur instanceof jdk.graal.compiler.nodes.ControlSinkNode) {
-                    /* End of this control flow path. */
-                } else {
-                    throw GraalError.shouldNotReachHereUnexpectedValue(cur); // ExcludeFromJacocoGeneratedReport
-                }
-
-                if (cur instanceof jdk.graal.compiler.nodes.AbstractMergeNode) {
-                    for (ValueNode phi : ((jdk.graal.compiler.nodes.AbstractMergeNode) cur).phis().snapshot()) {
-                        phi.replaceAtUsages(null);
-                        phi.safeDelete();
-                    }
-                }
-
-                cur.replaceAtPredecessor(null);
-                cur.replaceAtUsages(null);
-                cur.safeDelete();
-
-                if (next != null) {
-                    cur = next;
-                } else if (workList != null && !workList.isEmpty()) {
-                    cur = workList.pop();
-                } else {
-                    return;
-                }
-            }
         }
 
         protected void registerNode(GraphDecoder.LoopScope loopScope, int nodeOrderId, Node node, boolean allowOverwrite, boolean allowNull){
