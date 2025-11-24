@@ -895,10 +895,6 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             recordGraphElements(encodedGraph);
             PEMethodScope methodScope = createMethodScope(graph, null, null, encodedGraph, method, null, 0, null);
             decode(createInitialLoopScope(methodScope, null));
-            // *** this just shows that if there is no inlining there are no canonicalizations. methodToBeInlined has no canonicalizations when its the root
-//            if (methodScope.method.getName().contains("methodToBeInlined")){ // *** for debug
-//                System.out.println("--- root methodToBeInlined benefit: " + methodScope.benefit + " evaluations: " + methodScope.evaluations);
-//            }
             debug.dump(DebugContext.VERBOSE_LEVEL, graph, "Before graph cleanup");
             cleanupGraph(methodScope);
 

@@ -197,7 +197,6 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
     protected void handleFixedNode(MethodScope methodScope, LoopScope loopScope, int nodeOrderId, FixedNode node) {
         try (DebugCloseable a = CanonicalizeFixedNode.start(debug)) {
             Node canonical = canonicalizeFixedNode(methodScope, loopScope, node);
-            methodScope.evaluations++;
             if (canonical != node) {
                 // canonical's cost will be counted in NonTrivialInliningGraphDecoder.registerNode
                 methodScope.benefit++;
@@ -391,7 +390,6 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
     @Override
     @SuppressWarnings("try")
     protected Node handleFloatingNodeBeforeAdd(MethodScope methodScope, LoopScope loopScope, Node node) {
-        methodScope.evaluations++;
         if (node instanceof ValueNode) { // *** try to improve stamps
             ((ValueNode) node).inferStamp();
         }
