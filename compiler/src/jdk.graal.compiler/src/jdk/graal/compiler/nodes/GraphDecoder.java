@@ -1029,7 +1029,7 @@ public class GraphDecoder {
                 updatePredecessors = methodScope.loopExplosion.isNoExplosion();
             }
 
-            methodScope.reader.setByteIndex(methodScope.encodedGraph.nodeStartOffsets[nodeOrderId]); // *** This seeks the reader to the right node
+            methodScope.reader.setByteIndex(methodScope.encodedGraph.nodeStartOffsets[nodeOrderId]);
             int typeId = methodScope.reader.getUVInt();
             assert node.getNodeClass() == methodScope.encodedGraph.getNodeClass(typeId) : Assertions.errorMessage(node, methodScope.encodedGraph.getNodeClass(typeId));
             makeFixedNodeInputs(methodScope, loopScope, node);
@@ -1835,8 +1835,8 @@ public class GraphDecoder {
             if (skipDirectEdge(node, edges, index)) {
                 continue;
             }
-            int orderId = readOrderId(methodScope);// This reads the encoded graph, but how does it know what position to read? [it's using the encoded node format]
-            Node value = ensureNodeCreated(methodScope, loopScope, orderId);//This should get the arguments of inlined methods
+            int orderId = readOrderId(methodScope);
+            Node value = ensureNodeCreated(methodScope, loopScope, orderId);
             edges.initializeNode(node, index, value);
             if (value != null && !value.isDeleted()) {
                 edges.update(node, null, value);
@@ -1849,7 +1849,7 @@ public class GraphDecoder {
             assert edges.getCount() - edges.getDirectCount() == 1 : "MergeNode has one variable size input (the ends)";
             assert Edges.getNodeList(node, edges.getOffsets(), edges.getDirectCount()) != null : "Input list must have been already created";
         } else {
-            for (int index = edges.getDirectCount(); index < edges.getCount(); index++) {// for indirect edges
+            for (int index = edges.getDirectCount(); index < edges.getCount(); index++) {
                 int size = methodScope.reader.getSVInt();
                 if (size != -1) {
                     NodeList<Node> nodeList = new NodeInputList<>(node, size);
@@ -1878,17 +1878,17 @@ public class GraphDecoder {
             assert edges.getCount() - edges.getDirectCount() == 1 : "PhiNode has one variable size input (the values)";
             edges.initializeList(node, edges.getDirectCount(), new NodeInputList<>(node));
         } else {
-            for (int index = 0; index < edges.getDirectCount(); index++) { // *** handle direct edges
+            for (int index = 0; index < edges.getDirectCount(); index++) {
                 int orderId = readOrderId(methodScope);
                 Node value = ensureNodeCreated(methodScope, loopScope, orderId);
                 edges.initializeNode(node, index, value);
             }
-            for (int index = edges.getDirectCount(); index < edges.getCount(); index++) {// *** for each of the target node's edges
+            for (int index = edges.getDirectCount(); index < edges.getCount(); index++) {
                 int size = methodScope.reader.getSVInt();
                 if (size != -1) {
                     NodeList<Node> nodeList = new NodeInputList<>(node, size);
-                    edges.initializeList(node, index, nodeList);// make a new input list -- why is it more than 1??? [direct edges are 1 node. indirect goes to a list. this is handling the indirect part]
-                    for (int idx = 0; idx < size; idx++) {//fill up the list with nodes
+                    edges.initializeList(node, index, nodeList);
+                    for (int idx = 0; idx < size; idx++) {
                         int orderId = readOrderId(methodScope);
                         Node value = ensureNodeCreated(methodScope, loopScope, orderId);
                         nodeList.initialize(idx, value);

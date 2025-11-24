@@ -1193,7 +1193,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             ValueNode[] arguments = callTarget.arguments().toArray(ValueNode.EMPTY_ARRAY);
             GraphBuilderContext graphBuilderContext = new PENonAppendGraphBuilderContext(methodScope, invokeData.invoke);
 
-            for (InlineInvokePlugin plugin : inlineInvokePlugins) { // Why does it loop if it returns at the first success [i guess its checking if ANY plugin allows it to be inlined]
+            for (InlineInvokePlugin plugin : inlineInvokePlugins) {
                 InlineInfo inlineInfo = plugin.shouldInlineInvoke(graphBuilderContext, targetMethod, arguments);
                 if (inlineInfo != null) {
                     if (inlineInfo.allowsInlining()) {
@@ -1218,12 +1218,6 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         if (graphToInline == null) {
             return null;
         }
-        // *** debug assert doesn't seem to work. shouldInlineInvoke will prevent this except for methods that are explicitely marked inlinaable.
-        // *** This will also get hit by IBA too.
-        /*if (methodScope.caller != null){
-            //throw new RuntimeException("We only want to inline one level deep per round for now.");
-            System.out.println("Inlining non-first-level-callee: " +inlineMethod.getName() + " caller:" +  methodScope.method.getName());
-        }*/
 
         assert !graph.trackNodeSourcePosition() || graphToInline.trackNodeSourcePosition() : graph + " " + graphToInline;
         if (methodScope.inliningDepth > Options.InliningDepthError.getValue(options)) {
@@ -1285,7 +1279,6 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
          * The GraphEncoder assigns parameters a nodeId immediately after the fixed nodes.
          * Initializing createdNodes here avoid decoding and immediately replacing the
          * ParameterNodes.
-         * *** So they put these arg nodes at the back of the array so they do not get decoded and dont replace params. So whats the point? [Adinn Well they are in the new graph, but we dont need to ever decode them since they are not in the encoded graph.]
          */
         int firstArgumentNodeId = inlineScope.maxFixedNodeOrderId + 1;
         inlineLoopScope.setNodes(firstArgumentNodeId, arguments);
@@ -1689,8 +1682,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             }
             node = param.copyWithInputs();
         }
-        Node result =  super.handleFloatingNodeBeforeAdd(methodScope, loopScope, node);
-        return result;
+       return super.handleFloatingNodeBeforeAdd(methodScope, loopScope, node);
     }
 
     protected void ensureOuterStateDecoded(PEMethodScope methodScope) {
