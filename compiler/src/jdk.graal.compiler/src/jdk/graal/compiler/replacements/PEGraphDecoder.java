@@ -34,8 +34,10 @@ import static jdk.graal.compiler.nodeinfo.NodeSize.SIZE_0;
 import static jdk.graal.compiler.nodeinfo.NodeSize.SIZE_IGNORED;
 
 import java.net.URI;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.Formatter;
 import java.util.List;
 import java.util.Map;
@@ -1445,6 +1447,65 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         }
     }
 
+    /**
+     * Kill fixed nodes of structured control flow. Not as generic, but faster, than
+     * {@link GraphUtil#killCFG}.
+     *
+     * We cannot kill unused floating nodes at this point, because we are still in the middle of
+     * decoding caller graphs, so floating nodes of the caller that have no usage yet can get used
+     * when decoding of the caller continues. Unused floating nodes are cleaned up by the next run
+     * of the CanonicalizerPhase.
+     */
+    protected void killControlFlowNodes(PEMethodScope inlineScope, FixedNode start) {
+        Deque<Node> workList = null;
+        Node cur = start;
+        while (true) {
+            assert !cur.isDeleted() : cur;
+            assert graph.isNew(inlineScope.methodStartMark, cur) : cur;
+
+            Node next = null;
+            if (cur instanceof FixedWithNextNode) {
+                next = ((FixedWithNextNode) cur).next();
+            } else if (cur instanceof ControlSplitNode) {
+                for (Node successor : cur.successors()) {
+                    if (next == null) {
+                        next = successor;
+                    } else {
+                        if (workList == null) {
+                            workList = new ArrayDeque<>();
+                        }
+                        workList.push(successor);
+                    }
+                }
+            } else if (cur instanceof AbstractEndNode) {
+                next = ((AbstractEndNode) cur).merge();
+            } else if (cur instanceof ControlSinkNode) {
+                /* End of this control flow path. */
+            } else {
+                throw GraalError.shouldNotReachHereUnexpectedValue(cur); // ExcludeFromJacocoGeneratedReport
+            }
+
+            if (cur instanceof AbstractMergeNode) {
+                for (ValueNode phi : ((AbstractMergeNode) cur).phis().snapshot()) {
+                    phi.replaceAtUsages(null);
+                    phi.safeDelete();
+                }
+            }
+
+            cur.replaceAtPredecessor(null);
+            cur.replaceAtUsages(null);
+            cur.safeDelete();
+
+            if (next != null) {
+                cur = next;
+            } else if (workList != null && !workList.isEmpty()) {
+                cur = workList.pop();
+            } else {
+                return;
+            }
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> T getSingleMatchingNode(List<ControlSinkNode> returnAndUnwindNodes, boolean hasNonMatchingEntries, Class<T> clazz) {
         if (!hasNonMatchingEntries) {
@@ -1682,7 +1743,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             }
             node = param.copyWithInputs();
         }
-       return super.handleFloatingNodeBeforeAdd(methodScope, loopScope, node);
+        return super.handleFloatingNodeBeforeAdd(methodScope, loopScope, node);
     }
 
     protected void ensureOuterStateDecoded(PEMethodScope methodScope) {
