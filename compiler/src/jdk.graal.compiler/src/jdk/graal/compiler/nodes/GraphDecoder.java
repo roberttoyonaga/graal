@@ -152,7 +152,6 @@ public class GraphDecoder {
          */
         public InliningLogCodec.InliningLogDecoder inliningLogDecoder;
         public int benefit = 0;
-        public int cost = 0;
         public int invokeCount = 0;
         public Map<ResolvedJavaMethod, Integer> newCallees = new HashMap<>(4);
 
@@ -1904,7 +1903,6 @@ public class GraphDecoder {
         }
         Node node = lookupNode(loopScope, nodeOrderId);
         if (node != null) {
-            methodScope.cost += node.estimatedNodeSize().value; //*** attribute cost to scope even though node is already created. Unused
             return node;
         }
 
