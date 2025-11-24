@@ -1214,8 +1214,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
                 InlineInfo inlineInfo = plugin.shouldInlineInvoke(graphBuilderContext, targetMethod, arguments);
                 if (inlineInfo != null) {
                     if (inlineInfo.allowsInlining()) {
-                        int improvedStamps = canImproveStamps(inlineInfo, arguments, methodScope);
-                        return doInline(methodScope, loopScope, invokeData, inlineInfo, arguments, improvedStamps);
+                        return doInline(methodScope, loopScope, invokeData, inlineInfo, arguments);
                     } else {
                         return null;
                     }
@@ -1225,11 +1224,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         }
     }
 
-    protected int canImproveStamps(InlineInfo inlineInfo, ValueNode[] arguments, PEMethodScope methodScope) {
-        return 0;
-    }
-
-    protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInfo inlineInfo, ValueNode[] arguments,  int improvedStamps) {
+    protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInfo inlineInfo, ValueNode[] arguments) {
         if (invokeData.invoke.getInlineControl() != Invoke.InlineControl.Normal) {
             // The graph decoder only has one version of the method so treat the BytecodesOnly case
             // as don't inline.
@@ -1263,7 +1258,6 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         invokeNode.replaceAtPredecessor(null);
 
         PEMethodScope inlineScope = createMethodScope(graph, methodScope, loopScope, graphToInline, inlineMethod, invokeData, methodScope.inliningDepth + 1, arguments);
-        inlineScope.improvedStampCount = improvedStamps;
 
         if (!inlineMethod.isStatic()) {
             if (StampTool.isPointerAlwaysNull(arguments[0])) {
