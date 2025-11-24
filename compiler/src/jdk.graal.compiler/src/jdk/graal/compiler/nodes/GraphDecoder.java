@@ -153,7 +153,6 @@ public class GraphDecoder {
         public InliningLogCodec.InliningLogDecoder inliningLogDecoder;
         public int benefit = 0;
         public int cost = 0;
-        public int evaluations = 0; // *** for debugging
         public int invokeCount = 0;
         public Map<ResolvedJavaMethod, Integer> newCallees = new HashMap<>(4);
 
