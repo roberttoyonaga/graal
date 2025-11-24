@@ -154,7 +154,6 @@ public class GraphDecoder {
         public int benefit = 0;
         public int cost = 0;
         public int evaluations = 0; // *** for debugging
-        public int improvedStampCount = 0;
         public int invokeCount = 0;
         public Map<ResolvedJavaMethod, Integer> newCallees = new HashMap<>(4);
 
