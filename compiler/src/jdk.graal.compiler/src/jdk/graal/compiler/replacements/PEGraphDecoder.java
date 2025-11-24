@@ -1327,32 +1327,6 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         }
     }
 
-    @Override // *** for debug
-    protected void beforeCanonicalization(@SuppressWarnings("unused") GraphDecoder.MethodScope methodScope) {
-        if (debug.isDumpEnabled(DebugContext.VERY_DETAILED_LEVEL)) {
-            debug.dump(DebugContext.VERY_DETAILED_LEVEL, graph, "- Before canonicalization %s", ((PEGraphDecoder.PEMethodScope) methodScope).method.format("%H.%n"));
-        }
-    }
-    @Override // *** for debug
-    protected void afterCanonicalization(@SuppressWarnings("unused") GraphDecoder.MethodScope methodScope) {
-        if (debug.isDumpEnabled(DebugContext.VERY_DETAILED_LEVEL)) {
-            debug.dump(DebugContext.VERY_DETAILED_LEVEL, graph, "- After canonicalization %s", ((PEGraphDecoder.PEMethodScope) methodScope).method.format("%H.%n"));
-        }
-    }
-
-
-    protected void beforeFloatingCanonicalization(@SuppressWarnings("unused") GraphDecoder.MethodScope methodScope) { // *** for debug
-        if (debug.isDumpEnabled(DebugContext.VERY_DETAILED_LEVEL)) {
-            debug.dump(DebugContext.VERY_DETAILED_LEVEL, graph, "- Before FLOATING canon... %s", ((PEGraphDecoder.PEMethodScope) methodScope).method.format("%H.%n"));
-        }
-    }
-
-    protected void afterFloatingCanonicalization(@SuppressWarnings("unused") GraphDecoder.MethodScope methodScope) { // *** for debug
-        if (debug.isDumpEnabled(DebugContext.VERY_DETAILED_LEVEL)) {
-            debug.dump(DebugContext.VERY_DETAILED_LEVEL, graph, "- After FLOATING canon... %s", ((PEGraphDecoder.PEMethodScope) methodScope).method.format("%H.%n"));
-        }
-    }
-
     @Override
     protected void finishInlining(MethodScope is) {
         PEMethodScope inlineScope = (PEMethodScope) is;
@@ -1728,13 +1702,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             }
             node = param.copyWithInputs();
         }
-        if (methodScope.method.getName().contains("methodToBeInlined")) { // *** for debug
-            beforeFloatingCanonicalization(methodScope);
-        }
         Node result =  super.handleFloatingNodeBeforeAdd(methodScope, loopScope, node);
-        if (methodScope.method.getName().contains("methodToBeInlined")) { // *** for debug
-            afterFloatingCanonicalization(methodScope);
-        }
         return result;
     }
 
