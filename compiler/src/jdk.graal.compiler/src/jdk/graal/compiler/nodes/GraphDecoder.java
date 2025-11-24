@@ -787,13 +787,6 @@ public class GraphDecoder {
     protected void afterMethodScope(@SuppressWarnings("unused") MethodScope methodScope) {
     }
 
-    // *** for debug
-    protected void beforeCanonicalization(@SuppressWarnings("unused") MethodScope methodScope) {
-    }
-    // *** for debug
-    protected void afterCanonicalization(@SuppressWarnings("unused") MethodScope methodScope) {
-    }
-
     protected void finishInlining(@SuppressWarnings("unused") MethodScope inlineScope) {
     }
 
@@ -910,7 +903,6 @@ public class GraphDecoder {
 
             if ((node instanceof IfNode || node instanceof SwitchNode) &&
                             earlyCanonicalization(methodScope, successorAddScope, nodeOrderId, node)) {
-                beforeCanonicalization(methodScope); // *** for debug
                 return loopScope;
             }
 
@@ -1046,9 +1038,7 @@ public class GraphDecoder {
             } else if (node instanceof ReturnNode || node instanceof UnwindNode) {
                 methodScope.returnAndUnwindNodes.add((ControlSinkNode) node);
             } else {
-                beforeCanonicalization(methodScope);// *** for debug
                 handleFixedNode(methodScope, loopScope, nodeOrderId, node);
-                afterCanonicalization(methodScope);// *** for debug
             }
             if (DUMP_DURING_FIXED_NODE_PROCESSING) {
                 if (node != null) {
