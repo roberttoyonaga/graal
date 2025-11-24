@@ -348,65 +348,6 @@ public class InlineBeforeAnalysisGraphDecoder extends PEGraphDecoder {
     }
 
     /**
-     * Kill fixed nodes of structured control flow. Not as generic, but faster, than
-     * {@link GraphUtil#killCFG}.
-     *
-     * We cannot kill unused floating nodes at this point, because we are still in the middle of
-     * decoding caller graphs, so floating nodes of the caller that have no usage yet can get used
-     * when decoding of the caller continues. Unused floating nodes are cleaned up by the next run
-     * of the CanonicalizerPhase.
-     */
-    private void killControlFlowNodes(PEMethodScope inlineScope, FixedNode start) {
-        Deque<Node> workList = null;
-        Node cur = start;
-        while (true) {
-            assert !cur.isDeleted() : cur;
-            assert graph.isNew(inlineScope.methodStartMark, cur) : cur;
-
-            Node next = null;
-            if (cur instanceof FixedWithNextNode) {
-                next = ((FixedWithNextNode) cur).next();
-            } else if (cur instanceof ControlSplitNode) {
-                for (Node successor : cur.successors()) {
-                    if (next == null) {
-                        next = successor;
-                    } else {
-                        if (workList == null) {
-                            workList = new ArrayDeque<>();
-                        }
-                        workList.push(successor);
-                    }
-                }
-            } else if (cur instanceof AbstractEndNode) {
-                next = ((AbstractEndNode) cur).merge();
-            } else if (cur instanceof ControlSinkNode) {
-                /* End of this control flow path. */
-            } else {
-                throw GraalError.shouldNotReachHereUnexpectedValue(cur); // ExcludeFromJacocoGeneratedReport
-            }
-
-            if (cur instanceof AbstractMergeNode) {
-                for (ValueNode phi : ((AbstractMergeNode) cur).phis().snapshot()) {
-                    phi.replaceAtUsages(null);
-                    phi.safeDelete();
-                }
-            }
-
-            cur.replaceAtPredecessor(null);
-            cur.replaceAtUsages(null);
-            cur.safeDelete();
-
-            if (next != null) {
-                cur = next;
-            } else if (workList != null && !workList.isEmpty()) {
-                cur = workList.pop();
-            } else {
-                return;
-            }
-        }
-    }
-
-    /**
      * The generic type of {@link InlineBeforeAnalysisPolicy} makes the policy implementation nice,
      * at the cost of this ugly cast.
      */
