@@ -48,10 +48,8 @@ import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.code.CalleeInfo;
 
 public class CompilationInfo {
-    public volatile int sizeLastRound;
+    public int sizeLastRound;
     public AtomicLong callsites = new AtomicLong();
-    // Flag that indicates to halt inlining into this as a root.
-    public volatile boolean inliningHalted;
     // Flag to indicate that one of this method's callees has been inlined into it.
     public volatile boolean hasChanged;
     // Callees that have been evaluated but did not meet the inlining threshold.
