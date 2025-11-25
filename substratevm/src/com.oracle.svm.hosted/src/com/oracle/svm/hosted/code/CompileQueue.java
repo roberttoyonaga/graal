@@ -813,7 +813,8 @@ public class CompileQueue {
                         assert method.isOriginalMethod();
                         for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                             HostedMethod hMethod = (HostedMethod) multiMethod;
-                            if (hMethod.compilationInfo.getCompilationGraph() != null && !hMethod.compilationInfo.inliningHalted) {
+                            // Use the same fallback as the paper, 50000
+                            if (hMethod.compilationInfo.getCompilationGraph() != null && hMethod.compilationInfo.sizeLastRound < 50000) {
                                 executor.execute(new NonTrivialInlineTask(hMethod));
                             }
                         }
@@ -1030,7 +1031,8 @@ public class CompileQueue {
             VMError.guarantee(calleeInfo != null, "This should have been created in doInline");
 
             double currentSize = NodeCostUtil.computeGraphSize(graph);
-            double calleeCost = (currentSize - calleeInfo.sizeBeforeInlining);//* (1+ (calleeInfo.depth-1)/4);
+            double calleeCost = (currentSize - calleeInfo.sizeBeforeInlining);
+            // Similar to the TrivialInliningPhase, we can be a bit more lenient with leaf methods
             if (inlineScope.invokeCount == 0) {
                 calleeCost = calleeCost / 4.0 ;
             }
@@ -1086,10 +1088,6 @@ public class CompileQueue {
             }
             inlinedDuringDecoding = true;
             super.finishInlining(inlineScope);
-        }
-
-        protected void registerNode(GraphDecoder.LoopScope loopScope, int nodeOrderId, Node node, boolean allowOverwrite, boolean allowNull){
-            super.registerNode(loopScope, nodeOrderId, node, allowOverwrite, allowNull);
         }
     }
 
@@ -1260,10 +1258,6 @@ public class CompileQueue {
             for (Node n : graph.getNodes()) {
                 method.compilationInfo.sizeLastRound += n.estimatedNodeSize().value;
             }
-            // Use the same fallback as the paper
-            if (method.compilationInfo.sizeLastRound > 50000) {
-                method.compilationInfo.inliningHalted = true;
-            }
 
         } catch (Throwable ex) {
             throw debug.handle(ex);
@@ -1340,8 +1334,6 @@ public class CompileQueue {
             // This is needed to stop ourselves from diving beyond 1 level of inlining
             return false;
         }
-
-        VMError.guarantee(!root.compilationInfo.inliningHalted);
 
         // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead of doing the trial again.
         if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).lastRoundUpdated != round){
