@@ -492,9 +492,8 @@ public class CompileQueue {
             }
             try (ProgressReporter.ReporterClosable ac = reporter.printInlining()) {
                 inlineTrivialMethods(debug);
-            }
-            try (ProgressReporter.ReporterClosable ac = reporter.printNonTrivialInlining()) {
                 inlineNonTrivialMethods(debug);
+                inlineSingleCallsiteMethods(debug);
             }
             if (ImageSingletons.contains(HostedHeapDumpFeature.class)) {
                 ImageSingletons.lookup(HostedHeapDumpFeature.class).afterInlining();
@@ -840,7 +839,10 @@ public class CompileQueue {
             });
             unpublishedNonTrivialMethods.clear();
         } while (inliningProgress);
+    }
 
+    @SuppressWarnings("try")
+    protected void inlineSingleCallsiteMethods(DebugContext debug) throws InterruptedException {
         // Gather all single callsite methods
         ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods = new ConcurrentHashMap<>();
         round = 0;
@@ -901,7 +903,7 @@ public class CompileQueue {
         System.out.println("\n==== Single Callsite Inlining total rounds " + round);
         System.out.println("Found this many methods with single callsites originally: " + originalSize);
         System.out.println("Found this many methods with single callsites remaining: " + singleCallsiteMethods.size());
-        System.out.println("Found this ignored methods: " + ignoredMethods.size());
+        System.out.println("Found this many ignored methods: " + ignoredMethods.size());
         //TODO uncomment ? VMError.guarantee(singleCallsiteMethods.isEmpty());
     }
 
@@ -961,156 +963,6 @@ public class CompileQueue {
         }
     }
 
-    class InliningGraphDecoder extends PEGraphDecoder {
-
-        InliningGraphDecoder(StructuredGraph graph, Providers providers, TrivialInliningPlugin inliningPlugin) {
-            super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, null,
-                            null,
-                            new InlineInvokePlugin[]{inliningPlugin},
-                            null, null, null, null,
-                            new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
-        }
-
-        @Override
-        protected EncodedGraph lookupEncodedGraph(ResolvedJavaMethod method, BytecodeProvider intrinsicBytecodeProvider) {
-            return ((HostedMethod) method).compilationInfo.getCompilationGraph().getEncodedGraph();
-        }
-
-        @Override
-        protected LoopScope trySimplifyInvoke(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, MethodCallTargetNode callTarget) {
-            return super.trySimplifyInvoke(methodScope, loopScope, invokeData, callTarget);
-        }
-    }
-
-    class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
-        boolean inlinedDuringDecoding;
-        NonTrivialInliningGraphDecoder(StructuredGraph graph, Providers providers, NonTrivialInliningPlugin inliningPlugin) {
-            super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, null,
-                            null,
-                            new InlineInvokePlugin[]{inliningPlugin},
-                            null, null, null, null,
-                            new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
-        }
-
-        @Override
-        protected EncodedGraph lookupEncodedGraph(ResolvedJavaMethod method, BytecodeProvider intrinsicBytecodeProvider) {
-            return ((HostedMethod) method).compilationInfo.getCompilationGraph().getEncodedGraph();
-        }
-
-        @Override
-        protected LoopScope trySimplifyInvoke(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, MethodCallTargetNode callTarget) {
-            return super.trySimplifyInvoke(methodScope, loopScope, invokeData, callTarget);
-        }
-
-        /** The purpose of this override is to calculate the size before inlining. It will be used later to calculate the callee cost.*/
-        @Override
-        protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments) {
-            int currentSize = NodeCostUtil.computeGraphSize(graph);
-            PEMethodScope scope =  methodScope;
-            while(scope.caller != null) {
-                scope = scope.caller;
-            }
-            HostedMethod root = (HostedMethod) scope.method;
-            HostedMethod callee = (HostedMethod) inlineInfo.getMethodToInline();
-            if (!root.compilationInfo.callees.containsKey(callee)) {
-                root.compilationInfo.callees.put(callee, new CalleeInfo(callee, round)); // If we end up inlining, this CalleeInfo will not survive to the next round
-            }
-            // Stash the graph size in the callee info. Recursion (due to multiple callsites at different depths) should not be a problem since we only go one level deep.
-            root.compilationInfo.callees.get(callee).sizeBeforeInlining = currentSize;
-            return super.doInline(methodScope,loopScope,invokeData,inlineInfo,arguments);
-        }
-
-        boolean canInline(PEMethodScope inlineScope, HostedMethod caller, HostedMethod callee, boolean evaluatingFirstLevelCallee, PEMethodScope callerScope) {
-            if (callee.shouldBeInlined()) {
-                return true;
-            }
-            HostedMethod root = caller;
-            VMError.guarantee(evaluatingFirstLevelCallee, "we should not be evaluating beyond the 1st level");
-
-            CalleeInfo calleeInfo = root.compilationInfo.callees.get(callee);
-            VMError.guarantee(calleeInfo != null, "This should have been created in doInline");
-
-            double currentSize = NodeCostUtil.computeGraphSize(graph);
-            double calleeCost = (currentSize - calleeInfo.sizeBeforeInlining);
-            // Similar to the TrivialInliningPhase, we can be a bit more lenient with leaf methods
-            if (inlineScope.invokeCount == 0) {
-                calleeCost = calleeCost / 4.0 ;
-            }
-
-            double offset = 1.0;
-            double bc = (offset + inlineScope.benefit) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost;
-//            double bc = (offset +  inlineScope.benefit) / calleeCost;
-            // Only inline the top method marked from previous round. On round 1 we don't inline anything.
-            double t1 = 5;
-            double t2 = 1;
-            double threshold = t1 * Math.pow(2, (calleeCost/(16 * t2)));
-            if(bc >= threshold){
-                // Commit the callsite count updates for 2nd level callees being copied into the root scope.
-                for (var entry : inlineScope.newCallees.entrySet()) {
-                    HostedMethod hMethod = (HostedMethod) entry.getKey();
-                    hMethod.compilationInfo.callsites.addAndGet(entry.getValue());
-                }
-                // inlining into this callsite removes it.
-                callee.compilationInfo.callsites.decrementAndGet();
-                // Remove callee from the "seen" set
-                root.compilationInfo.callees.remove(callee);
-                return true;
-            } else {
-                // If we fail to inline, the CalleeInfo remains in the root's set, so we don't retrial it in future rounds unless it's changed.
-                return false;
-            }
-        }
-
-        @Override
-        protected void finishInlining(MethodScope is) {
-            PEMethodScope inlineScope = (PEMethodScope) is;
-            PEMethodScope callerScope = inlineScope.caller;
-            ResolvedJavaMethod inlineMethod = inlineScope.method;
-            LoopScope callerLoopScope = inlineScope.callerLoopScope;
-            InvokeData invokeData = inlineScope.invokeData;
-
-            if (!canInline(inlineScope, (HostedMethod) callerScope.method,(HostedMethod) inlineMethod, callerScope.caller==null, callerScope)){
-                // This block is essentially the same as InlineBeforeAnalysisGraphDecoder#finishInlining
-                if (invokeData.invokePredecessor.next() != null) {
-                    killControlFlowNodes(inlineScope, invokeData.invokePredecessor.next());
-                    assert invokeData.invokePredecessor.next() == null : "Successor must have been a fixed node created in the aborted scope, which is deleted now";
-                }
-                invokeData.invokePredecessor.setNext(invokeData.invoke.asFixedNode());
-                if (inlineScope.exceptionPlaceholderNode != null) {
-                    assert invokeData.invoke instanceof jdk.graal.compiler.nodes.InvokeWithExceptionNode : invokeData.invoke;
-                    assert lookupNode(callerLoopScope, invokeData.exceptionOrderId) == inlineScope.exceptionPlaceholderNode : inlineScope;
-                    registerNode(callerLoopScope, invokeData.exceptionOrderId, null, true, true);
-                    ValueNode exceptionReplacement = makeStubNode(callerScope, callerLoopScope, invokeData.exceptionOrderId);
-                    inlineScope.exceptionPlaceholderNode.replaceAtUsagesAndDelete(exceptionReplacement);
-                }
-                handleNonInlinedInvoke(callerScope, callerLoopScope, invokeData);
-                return;
-            }
-            inlinedDuringDecoding = true;
-            super.finishInlining(inlineScope);
-        }
-    }
-
-    class SingleCallsiteInliningGraphDecoder extends PEGraphDecoder {
-        SingleCallsiteInliningGraphDecoder(StructuredGraph graph, Providers providers, SingleCallsiteInliningPlugin inliningPlugin) {
-            super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, null,
-                    null,
-                    new InlineInvokePlugin[]{inliningPlugin},
-                    null, null, null, null,
-                    new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
-        }
-
-        @Override
-        protected EncodedGraph lookupEncodedGraph(ResolvedJavaMethod method, BytecodeProvider intrinsicBytecodeProvider) {
-            return ((HostedMethod) method).compilationInfo.getCompilationGraph().getEncodedGraph();
-        }
-
-        @Override
-        protected LoopScope trySimplifyInvoke(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, MethodCallTargetNode callTarget) {
-            return super.trySimplifyInvoke(methodScope, loopScope, invokeData, callTarget);
-        }
-    }
-
     // Wrapper to clearly identify phase
     class TrivialInlinePhase extends Phase {
         final InliningGraphDecoder decoder;
@@ -1153,10 +1005,10 @@ public class CompileQueue {
     }
 
     class SingleCallsiteInlinePhase extends Phase {
-        final SingleCallsiteInliningGraphDecoder decoder;
+        final InliningGraphDecoder decoder;
         final HostedMethod method;
 
-        SingleCallsiteInlinePhase(SingleCallsiteInliningGraphDecoder decoder, HostedMethod method) {
+        SingleCallsiteInlinePhase(InliningGraphDecoder decoder, HostedMethod method) {
             this.decoder = decoder;
             this.method = method;
         }
@@ -1242,7 +1094,7 @@ public class CompileQueue {
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
         try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
             var inliningPlugin = new NonTrivialInliningPlugin();
-            var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin);
+            var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin, round);
             new NonTrivialInlinePhase(decoder, method).apply(graph);
 
             // Even if we've run out of budget we still need to publish the new graphs
@@ -1269,7 +1121,7 @@ public class CompileQueue {
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
         try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
             var inliningPlugin = new SingleCallsiteInliningPlugin(singleCallsiteMethods);
-            var decoder = new SingleCallsiteInliningGraphDecoder(graph, providers, inliningPlugin);
+            var decoder = new InliningGraphDecoder(graph, providers, inliningPlugin);
             new SingleCallsiteInlinePhase(decoder, method).apply(graph);
 
             // Even if we've run out of budget we still need to publish the new graphs
