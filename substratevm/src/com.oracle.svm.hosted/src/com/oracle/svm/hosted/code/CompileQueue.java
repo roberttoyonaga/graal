@@ -34,6 +34,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -43,6 +44,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.oracle.svm.core.jdk.UninterruptibleUtils;
 import jdk.graal.compiler.nodes.GraphDecoder;
@@ -494,6 +496,19 @@ public class CompileQueue {
                 inlineTrivialMethods(debug);
                 inlineNonTrivialMethods(debug);
                 inlineSingleCallsiteMethods(debug);
+                // Reset compilation info data.
+                universe.getMethods().forEach(method -> {
+                    for (MultiMethod multiMethod : method.getAllMultiMethods()) {
+                        HostedMethod hMethod = (HostedMethod) multiMethod;
+                        if (hMethod.compilationInfo.getCompilationGraph() != null) {
+                            hMethod.compilationInfo.hasChanged = false;
+                            hMethod.compilationInfo.callees = new HashMap<>(8);
+                            hMethod.compilationInfo.callsites = new AtomicLong();;
+                        }
+                    }
+                });
+                inlineTrivialMethods(debug);
+                inlineNonTrivialMethods(debug);
             }
             if (ImageSingletons.contains(HostedHeapDumpFeature.class)) {
                 ImageSingletons.lookup(HostedHeapDumpFeature.class).afterInlining();
@@ -838,7 +853,7 @@ public class CompileQueue {
                 }
             });
             unpublishedNonTrivialMethods.clear();
-        } while (inliningProgress);
+        } while (inliningProgress && round < 10); //Each round inlines one level deep. Limit depth to avoid  recursion recursion.
     }
 
     @SuppressWarnings("try")
@@ -930,7 +945,7 @@ public class CompileQueue {
 
         @Override
         public InlineInfo shouldInlineInvoke(GraphBuilderContext b, ResolvedJavaMethod method, ValueNode[] args) {
-            if (makeNonTrivialInlineDecision((HostedMethod) b.getMethod(), (HostedMethod) method, b) && b.recursiveInliningDepth(method) == 0) {
+            if (makeNonTrivialInlineDecision((HostedMethod) b.getMethod(), (HostedMethod) method, b)) {
                 return InlineInfo.createStandardInlineInfo(method);
             } else {
                 return InlineInfo.DO_NOT_INLINE_WITH_EXCEPTION;
@@ -947,7 +962,7 @@ public class CompileQueue {
 
         @Override
         public InlineInfo shouldInlineInvoke(GraphBuilderContext b, ResolvedJavaMethod method, ValueNode[] args) {
-            if (makeSingleCallsiteInlineDecision((HostedMethod) b.getMethod(), (HostedMethod) method, b, singleCallsiteMethods) && b.recursiveInliningDepth(method) == 0) {
+            if (makeSingleCallsiteInlineDecision((HostedMethod) method, b, singleCallsiteMethods) && b.recursiveInliningDepth(method) == 0) {
                 return InlineInfo.createStandardInlineInfo(method);
             } else {
                 return InlineInfo.DO_NOT_INLINE_WITH_EXCEPTION;
@@ -1198,19 +1213,15 @@ public class CompileQueue {
         return true;
     }
 
-    private boolean makeSingleCallsiteInlineDecision(HostedMethod caller, HostedMethod callee, GraphBuilderContext b, ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods) {
+    private boolean makeSingleCallsiteInlineDecision(HostedMethod callee, GraphBuilderContext b, ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods) {
 
         // Get the caller of the caller
         PEGraphDecoder.PEMethodScope callerScope = ((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope;
         PEGraphDecoder.PEMethodScope callerCallerScope = callerScope.caller;
         boolean evaluatingFirstLevelCallee = callerCallerScope == null;
 
-        if (!evaluatingFirstLevelCallee) {
-            return false;
-        }
-
         // All other rounds
-        if (singleCallsiteMethods.containsKey(callee)) {
+        if (evaluatingFirstLevelCallee && singleCallsiteMethods.containsKey(callee)) {
             return true;
         }
 
