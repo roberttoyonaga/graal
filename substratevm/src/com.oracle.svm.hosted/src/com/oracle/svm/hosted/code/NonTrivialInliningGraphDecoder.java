@@ -86,12 +86,12 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         if (!root.compilationInfo.callees.containsKey(callee)) {
             root.compilationInfo.callees.put(callee, new CalleeInfo(callee, round)); // If we end up inlining, this CalleeInfo will not survive to the next round
         }
-        // Stash the graph size in the callee info. Recursion (due to multiple callsites at different depths) should not be a problem since we only go one level deep.
+        // Stash the graph size in the callee info. Recursion (due to multiple callsites at different depths) should not be a problem since we only go one level deep per round.
         root.compilationInfo.callees.get(callee).sizeBeforeInlining = currentSize;
         return super.doInline(methodScope,loopScope,invokeData,inlineInfo,arguments);
     }
 
-    boolean canInline(PEMethodScope inlineScope, HostedMethod caller, HostedMethod callee, boolean evaluatingFirstLevelCallee, PEMethodScope callerScope) {
+    boolean canInline(PEMethodScope inlineScope, HostedMethod caller, HostedMethod callee, boolean evaluatingFirstLevelCallee) {
         if (callee.shouldBeInlined()) {
             return true;
         }
@@ -126,10 +126,9 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
             // Remove callee from the "seen" set
             root.compilationInfo.callees.remove(callee);
             return true;
-        } else {
-            // If we fail to inline, the CalleeInfo remains in the root's set, so we don't retrial it in future rounds unless it's changed.
-            return false;
         }
+        // If we fail to inline, the CalleeInfo remains in the root's set, so we don't retrial it in future rounds unless it's changed.
+        return false;
     }
 
     @Override
@@ -140,7 +139,7 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         LoopScope callerLoopScope = inlineScope.callerLoopScope;
         InvokeData invokeData = inlineScope.invokeData;
 
-        if (!canInline(inlineScope, (HostedMethod) callerScope.method,(HostedMethod) inlineMethod, callerScope.caller==null, callerScope)){
+        if (!canInline(inlineScope, (HostedMethod) callerScope.method, (HostedMethod) inlineMethod, callerScope.caller == null)){
             // This block is essentially the same as InlineBeforeAnalysisGraphDecoder#finishInlining
             if (invokeData.invokePredecessor.next() != null) {
                 killControlFlowNodes(inlineScope, invokeData.invokePredecessor.next());
