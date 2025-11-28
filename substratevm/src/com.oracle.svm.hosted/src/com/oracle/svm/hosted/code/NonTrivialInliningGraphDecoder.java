@@ -31,14 +31,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.oracle.graal.pointsto.flow.AnalysisParsedGraph;
 import com.oracle.svm.core.util.VMError;
-import com.oracle.svm.hosted.FeatureHandler;
-import com.oracle.svm.hosted.NativeImageGenerator;
-import com.oracle.svm.hosted.NativeImageOptions;
-import com.oracle.svm.hosted.ProgressReporter;
-import com.oracle.svm.hosted.diagnostic.HostedHeapDumpFeature;
-import com.oracle.svm.hosted.imagelayer.HostedImageLayerBuildingSupport;
-import com.oracle.svm.hosted.imagelayer.LayeredDispatchTableFeature;
-import com.oracle.svm.hosted.imagelayer.SVMImageLayerLoader;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import jdk.graal.compiler.bytecode.BytecodeProvider;
 import jdk.graal.compiler.nodes.EncodedGraph;
