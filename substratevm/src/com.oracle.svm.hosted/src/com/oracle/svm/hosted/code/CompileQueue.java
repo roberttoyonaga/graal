@@ -1140,14 +1140,17 @@ public class CompileQueue {
     }
 
     private void doInlineNonTrivial(DebugContext debug, HostedMethod method) {
-        /*
-         * Before doing any work, check if there is any potential for inlining.
-         *
-         * Note that we do not have information about the recursive inlining depth, but that is OK
-         * because in that case we just over-estimate the inlining potential, i.e., we do the
-         * decoding just to find out that nothing could be inlined.
-         */
-
+        // Before doing any work, check if there is any potential for inlining.
+        boolean inliningPotential = false;
+        for (var invokeInfo : method.compilationInfo.getCompilationGraph().getInvokeInfos()) {
+            if (invokeInfo.getInvokeKind().isDirect() && makeNonTrivialInliningPotentialDecision(method, invokeInfo.getTargetMethod())) {
+                inliningPotential = true;
+                break;
+            }
+        }
+        if (!inliningPotential) {
+            return;
+        }
         var providers = runtimeConfig.lookupBackend(method).getProviders();
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
         try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
@@ -1240,6 +1243,31 @@ public class CompileQueue {
 
         // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead of doing the trial again.
         if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).lastRoundUpdated != round){
+            // Check lastRoundUpdated in case there are multiple callsites.
+            // If it was updated the current round, we must re-trial since the data is related to a different callsite.
+            return false;
+        }
+
+        // Either the callee has not been seen before, or it has changed. We should trial it.
+        return true;
+    }
+
+    private boolean makeNonTrivialInliningPotentialDecision(HostedMethod root, HostedMethod callee) {
+        if (!SubstrateOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
+            /*
+             * We have compiled this method in a prior layer, but don't have the graph available
+             * here.
+             */
+            assert callee.isCompiledInPriorLayer() : root;
+            return false;
+        }
+
+        if (callee.shouldBeInlined()) {
+            return true;
+        }
+
+        // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead of doing the trial again.
+        if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee)){
             // Check lastRoundUpdated in case there are multiple callsites.
             // If it was updated the current round, we must re-trial since the data is related to a different callsite.
             return false;
