@@ -516,7 +516,7 @@ public class CompileQueue {
                 inlineTrivialMethods(debug);
                 inlineNonTrivialMethods(debug);
                 inlineSingleCallsiteMethods(debug);
-                // Reset compilation info data.
+                /*// Reset compilation info data.
                 universe.getMethods().forEach(method -> {
                     for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                         HostedMethod hMethod = (HostedMethod) multiMethod;
@@ -528,7 +528,7 @@ public class CompileQueue {
                     }
                 });
                 inlineTrivialMethods(debug);
-                inlineNonTrivialMethods(debug);
+                inlineNonTrivialMethods(debug);*/
             }
             if (ImageSingletons.contains(HostedHeapDumpFeature.class)) {
                 ImageSingletons.lookup(HostedHeapDumpFeature.class).afterInlining();
@@ -896,7 +896,7 @@ public class CompileQueue {
                 }
             });
             unpublishedNonTrivialMethods.clear();
-        } while (inliningProgress && round < 10); //Each round inlines one level deep. Limit depth to avoid  recursion recursion.
+        } while (inliningProgress && round < 10); //Each round inlines one level deep. Limit depth to avoid recursion.
     }
 
     @SuppressWarnings("try")
@@ -1161,13 +1161,8 @@ public class CompileQueue {
                 unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
             }
 
-            /* Compute new root size with new inlined nodes. It's okay to do this once per round since
-            we only inline one callee per round. Otherwise, it would be necessary to update the root size as we
-            inline each method during DFS.*/
-            method.compilationInfo.sizeLastRound = 0;
-            for (Node n : graph.getNodes()) {
-                method.compilationInfo.sizeLastRound += n.estimatedNodeSize().value;
-            }
+            /* Compute new root size with new inlined nodes.*/
+            method.compilationInfo.sizeLastRound = NodeCostUtil.computeGraphSize(graph);
 
         } catch (Throwable ex) {
             throw debug.handle(ex);
@@ -1177,7 +1172,7 @@ public class CompileQueue {
     private void doInlineSingleCallsite(DebugContext debug, HostedMethod method, ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods) {
         var providers = runtimeConfig.lookupBackend(method).getProviders();
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
-        try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
+        try (var s = debug.scope("InlineSingleCallsites", graph, method, this)) {
             var inliningPlugin = new SingleCallsiteInliningPlugin(singleCallsiteMethods);
             var decoder = new InliningGraphDecoder(graph, providers, inliningPlugin);
             new SingleCallsiteInlinePhase(decoder, method).apply(graph);
@@ -1227,10 +1222,8 @@ public class CompileQueue {
             return true;
         }
 
-        // Get the caller of the caller
         PEGraphDecoder.PEMethodScope callerScope = ((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope;
-        PEGraphDecoder.PEMethodScope callerCallerScope = callerScope.caller;
-        boolean evaluatingFirstLevelCallee = callerCallerScope == null;
+        boolean evaluatingFirstLevelCallee = callerScope.caller == null;
 
         HostedMethod root;
         if (evaluatingFirstLevelCallee) {
@@ -1247,23 +1240,19 @@ public class CompileQueue {
 
         // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead of doing the trial again.
         if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).lastRoundUpdated != round){
-            //we need lastRoundUpdated  incase there are multiple callsites. If it was updated the current round we
-            // know that we should evaluate again anyway bc another callsite added the entry the current round and the data is related to a different callsite. The downside is that we might end up doing extra work.
+            // Check lastRoundUpdated in case there are multiple callsites.
+            // If it was updated the current round, we must re-trial since the data is related to a different callsite.
             return false;
         }
 
-        // Either callee has not been seen before, or it has changed. We should trial it.
+        // Either the callee has not been seen before, or it has changed. We should trial it.
         return true;
     }
 
     private boolean makeSingleCallsiteInlineDecision(HostedMethod callee, GraphBuilderContext b, ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods) {
-
-        // Get the caller of the caller
         PEGraphDecoder.PEMethodScope callerScope = ((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope;
-        PEGraphDecoder.PEMethodScope callerCallerScope = callerScope.caller;
-        boolean evaluatingFirstLevelCallee = callerCallerScope == null;
+        boolean evaluatingFirstLevelCallee = callerScope.caller == null;
 
-        // All other rounds
         if (evaluatingFirstLevelCallee && singleCallsiteMethods.containsKey(callee)) {
             return true;
         }
