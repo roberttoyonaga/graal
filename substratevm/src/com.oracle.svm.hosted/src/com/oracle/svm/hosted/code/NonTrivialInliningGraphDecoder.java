@@ -25,9 +25,7 @@
  */
 package com.oracle.svm.hosted.code;
 
-
 import java.util.concurrent.ConcurrentHashMap;
-
 
 import com.oracle.graal.pointsto.flow.AnalysisParsedGraph;
 import com.oracle.svm.core.util.VMError;
@@ -46,12 +44,13 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
 class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
     boolean inlinedDuringDecoding;
     int round;
+
     NonTrivialInliningGraphDecoder(StructuredGraph graph, Providers providers, com.oracle.svm.hosted.code.CompileQueue.NonTrivialInliningPlugin inliningPlugin, int round) {
         super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, null,
-                null,
-                new InlineInvokePlugin[]{inliningPlugin},
-                null, null, null, null,
-                new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
+                        null,
+                        new InlineInvokePlugin[]{inliningPlugin},
+                        null, null, null, null,
+                        new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
         this.round = round;
     }
 
@@ -65,22 +64,28 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         return super.trySimplifyInvoke(methodScope, loopScope, invokeData, callTarget);
     }
 
-    /** The purpose of this override is to calculate the size before inlining. It will be used later to calculate the callee cost.*/
+    /**
+     * Calculate the size before inlining. It will be used later to calculate the callee cost when
+     * making inlining decisions.
+     */
     @Override
     protected LoopScope doInline(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, InlineInvokePlugin.InlineInfo inlineInfo, ValueNode[] arguments) {
-        int currentSize = NodeCostUtil.computeGraphSize(graph);
-        PEMethodScope scope =  methodScope;
-        while(scope.caller != null) {
+        // First, get the root method
+        PEMethodScope scope = methodScope;
+        while (scope.caller != null) {
             scope = scope.caller;
         }
         HostedMethod root = (HostedMethod) scope.method;
         HostedMethod callee = (HostedMethod) inlineInfo.getMethodToInline();
+        // If needed, create a CalleeInfo for the current callee
         if (!root.compilationInfo.callees.containsKey(callee)) {
-            root.compilationInfo.callees.put(callee, new CalleeInfo(callee, round)); // If we end up inlining, this CalleeInfo will not survive to the next round
+            // If this callee is inlined, this CalleeInfo will not survive beyond the current round.
+            root.compilationInfo.callees.put(callee, new CalleeInfo(callee, round));
         }
-        // Stash the graph size in the callee info. Recursion (due to multiple callsites at different depths) should not be a problem since we only go one level deep per round.
-        root.compilationInfo.callees.get(callee).sizeBeforeInlining = currentSize;
-        return super.doInline(methodScope,loopScope,invokeData,inlineInfo,arguments);
+        // Stash the graph size in the CalleeInfo. Recursion (due to multiple callsites at different
+        // depths) should not be a problem since we only go one level deep per round.
+        root.compilationInfo.callees.get(callee).sizeBeforeInlining = NodeCostUtil.computeGraphSize(graph);
+        return super.doInline(methodScope, loopScope, invokeData, inlineInfo, arguments);
     }
 
     boolean canInline(PEMethodScope inlineScope, HostedMethod caller, HostedMethod callee, boolean evaluatingFirstLevelCallee) {
@@ -97,29 +102,38 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         double calleeCost = (currentSize - calleeInfo.sizeBeforeInlining);
         // Similar to the TrivialInliningPhase, we can be a bit more lenient with leaf methods
         if (inlineScope.invokeCount == 0) {
-            calleeCost = calleeCost / 4.0 ;
+            calleeCost = calleeCost / 4.0;
         }
 
         double offset = 1.0;
-        double bc = (offset + inlineScope.benefit) * Math.pow(root.compilationInfo.callsites.get(),2)/ calleeCost;
-//            double bc = (offset +  inlineScope.benefit) / calleeCost;
-        // Only inline the top method marked from previous round. On round 1 we don't inline anything.
+        double bc = (offset + inlineScope.benefit) * Math.pow(root.compilationInfo.callsites.get(), 2) / calleeCost;
+        // double bc = (offset + inlineScope.benefit) / calleeCost;
+        /*
+         * Only inline the top method marked from previous round. On round 1 we don't inline
+         * anything.
+         */
         double t1 = 5;
         double t2 = 1;
-        double threshold = t1 * Math.pow(2, (calleeCost/(16 * t2)));
-        if(bc >= threshold){
-            // Commit the callsite count updates for 2nd level callees being copied into the root scope.
+        double threshold = t1 * Math.pow(2, (calleeCost / (16 * t2)));
+        if (bc >= threshold) {
+            /*
+             * Commit the callsite count updates for 2nd level callees being copied into the root
+             * scope.
+             */
             for (var entry : inlineScope.newCallees.entrySet()) {
                 HostedMethod hMethod = (HostedMethod) entry.getKey();
                 hMethod.compilationInfo.callsites.addAndGet(entry.getValue());
             }
-            // inlining into this callsite removes it.
+            // Inlining into this callsite removes it.
             callee.compilationInfo.callsites.decrementAndGet();
             // Remove callee from the "seen" set
             root.compilationInfo.callees.remove(callee);
             return true;
         }
-        // If we fail to inline, the CalleeInfo remains in the root's set, so we don't retrial it in future rounds unless it's changed.
+        /*
+         * If we fail to inline, the CalleeInfo remains in the root's set, so we don't retrial it in
+         * future rounds unless it changes.
+         */
         return false;
     }
 
@@ -131,7 +145,7 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         LoopScope callerLoopScope = inlineScope.callerLoopScope;
         InvokeData invokeData = inlineScope.invokeData;
 
-        if (!canInline(inlineScope, (HostedMethod) callerScope.method, (HostedMethod) inlineMethod, callerScope.caller == null)){
+        if (!canInline(inlineScope, (HostedMethod) callerScope.method, (HostedMethod) inlineMethod, callerScope.caller == null)) {
             // This block is essentially the same as InlineBeforeAnalysisGraphDecoder#finishInlining
             if (invokeData.invokePredecessor.next() != null) {
                 killControlFlowNodes(inlineScope, invokeData.invokePredecessor.next());
