@@ -43,7 +43,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import jdk.graal.compiler.nodes.GraphDecoder;
 import org.graalvm.collections.Pair;
 
 import jdk.graal.compiler.api.replacements.Fold;
@@ -346,7 +345,6 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         }
     }
 
-    // *** made public so it can be accessed from CompileQueue.TrivialInliningPlugin#shouldInlineInvoke
     public class PENonAppendGraphBuilderContext extends CoreProvidersDelegate implements GraphBuilderContext {
         public final PEMethodScope methodScope;
         protected final Invoke invoke;
@@ -1459,7 +1457,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
     protected void killControlFlowNodes(PEMethodScope inlineScope, FixedNode start) {
         Deque<Node> workList = null;
         Node cur = start;
-        while (true) {
+        for (int i = 0; i < 1000000; i++) {
             assert !cur.isDeleted() : cur;
             assert graph.isNew(inlineScope.methodStartMark, cur) : cur;
 
@@ -1743,6 +1741,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
             }
             node = param.copyWithInputs();
         }
+
         return super.handleFloatingNodeBeforeAdd(methodScope, loopScope, node);
     }
 

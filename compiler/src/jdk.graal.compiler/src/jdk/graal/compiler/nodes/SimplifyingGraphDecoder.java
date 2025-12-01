@@ -198,7 +198,6 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
         try (DebugCloseable a = CanonicalizeFixedNode.start(debug)) {
             Node canonical = canonicalizeFixedNode(methodScope, loopScope, node);
             if (canonical != node) {
-                // canonical's cost will be counted in NonTrivialInliningGraphDecoder.registerNode
                 methodScope.benefit++;
                 handleCanonicalization(loopScope, nodeOrderId, node, canonical, methodScope);
             }
@@ -359,7 +358,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
                     node.safeDelete();
                     for (Node successor : successorSnapshot) {
                         successor.safeDelete();
-                        methodScope.benefit += 15; // Add an additional benefit for each successor we can remove.
+                        methodScope.benefit += 15;
                     }
                 } else if (canonical instanceof WithExceptionNode) {
                     // will be handled below
@@ -400,7 +399,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
                      * to add additional usages later on for which we need a node. Therefore, we
                      * just do nothing and leave the node in place.
                      */
-                    methodScope.benefit+= 20;
+                    methodScope.benefit += 20;
                 } else if (canonical != node) {
                     methodScope.benefit++;
                     if (!canonical.isAlive()) {

@@ -34,13 +34,11 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Deque;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
-import jdk.graal.compiler.replacements.PEGraphDecoder;
 import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Equivalence;
@@ -75,6 +73,7 @@ import jdk.graal.compiler.nodes.spi.Canonicalizable;
 import jdk.graal.compiler.nodes.spi.CanonicalizerTool;
 import jdk.graal.compiler.options.OptionValues;
 import jdk.graal.compiler.replacements.nodes.MethodHandleWithExceptionNode;
+import jdk.graal.compiler.util.EconomicHashMap;
 import jdk.graal.compiler.util.IntArrayBuilder;
 import jdk.vm.ci.code.Architecture;
 import jdk.vm.ci.meta.Assumptions;
@@ -153,7 +152,7 @@ public class GraphDecoder {
         public InliningLogCodec.InliningLogDecoder inliningLogDecoder;
         public int benefit = 0;
         public int invokeCount = 0;
-        public Map<ResolvedJavaMethod, Integer> newCallees = new HashMap<>(4);
+        public EconomicHashMap<ResolvedJavaMethod, Integer> newCallees = new EconomicHashMap<>(4);
 
         @SuppressWarnings("unchecked")
         protected MethodScope(LoopScope callerLoopScope, StructuredGraph graph, EncodedGraph encodedGraph, LoopExplosionPlugin.LoopExplosionKind loopExplosion) {
@@ -938,7 +937,7 @@ public class GraphDecoder {
 
     public static final boolean DUMP_DURING_FIXED_NODE_PROCESSING = false;
 
-    protected LoopScope processNextNode(MethodScope methodScope, LoopScope loopScope) {// This really only processes fixed nodes
+    protected LoopScope processNextNode(MethodScope methodScope, LoopScope loopScope) {
         int nodeOrderId = loopScope.nodesToProcess.nextSetBit(0);
         loopScope.nodesToProcess.clear(nodeOrderId);
 

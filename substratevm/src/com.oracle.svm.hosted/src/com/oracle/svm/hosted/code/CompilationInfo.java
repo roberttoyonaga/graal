@@ -45,7 +45,6 @@ import com.oracle.svm.hosted.code.CompileQueue.CompileFunction;
 import com.oracle.svm.hosted.code.CompileQueue.ParseFunction;
 import com.oracle.svm.hosted.code.CompileQueue.ParseHooks;
 import com.oracle.svm.hosted.meta.HostedMethod;
-import com.oracle.svm.hosted.code.CalleeInfo;
 
 public class CompilationInfo {
     public int sizeLastRound;
