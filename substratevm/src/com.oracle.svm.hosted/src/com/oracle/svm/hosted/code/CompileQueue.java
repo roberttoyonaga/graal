@@ -28,13 +28,10 @@ package com.oracle.svm.hosted.code;
 import static com.oracle.svm.hosted.code.SubstrateCompilationDirectives.DEOPT_TARGET_METHOD;
 
 import java.lang.annotation.Annotation;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.Deque;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -43,15 +40,10 @@ import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
-import com.oracle.svm.core.jdk.UninterruptibleUtils;
-import jdk.graal.compiler.nodes.GraphDecoder;
 import org.graalvm.nativeimage.ImageSingletons;
 
 import com.oracle.graal.pointsto.api.PointstoOptions;
-import com.oracle.graal.pointsto.flow.AnalysisParsedGraph;
 import com.oracle.graal.pointsto.meta.HostedProviders;
 import com.oracle.graal.pointsto.util.CompletionExecutor;
 import com.oracle.graal.pointsto.util.CompletionExecutor.DebugContextRunnable;
@@ -98,7 +90,6 @@ import com.oracle.svm.util.OriginalClassProvider;
 
 import jdk.graal.compiler.api.replacements.Fold;
 import jdk.graal.compiler.asm.Assembler;
-import jdk.graal.compiler.bytecode.BytecodeProvider;
 import jdk.graal.compiler.code.CompilationResult;
 import jdk.graal.compiler.core.GraalCompiler;
 import jdk.graal.compiler.core.common.CompilationIdentifier;
@@ -122,7 +113,6 @@ import jdk.graal.compiler.lir.framemap.FrameMap;
 import jdk.graal.compiler.lir.phases.LIRSuites;
 import jdk.graal.compiler.nodes.CallTargetNode;
 import jdk.graal.compiler.nodes.ConstantNode;
-import jdk.graal.compiler.nodes.EncodedGraph;
 import jdk.graal.compiler.nodes.FrameState;
 import jdk.graal.compiler.nodes.GraphEncoder;
 import jdk.graal.compiler.nodes.GraphState.StageFlag;
@@ -158,7 +148,6 @@ import jdk.vm.ci.meta.MetaAccessProvider;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 import jdk.vm.ci.meta.ResolvedJavaType;
 import jdk.vm.ci.meta.VMConstant;
-import com.oracle.svm.hosted.code.CalleeInfo;
 
 public class CompileQueue {
 
@@ -217,12 +206,11 @@ public class CompileQueue {
     public record UnpublishedTrivialMethods(CompilationGraph unpublishedGraph, boolean newlyTrivial) {
     }
 
-    private final ConcurrentMap<HostedMethod, UnpublishedTrivialMethods> unpublishedTrivialMethods = new ConcurrentHashMap<>();
-    private final ConcurrentMap<HostedMethod, UnpublishedTrivialMethods> unpublishedNonTrivialMethods = new ConcurrentHashMap<>();
+    private final ConcurrentMap<HostedMethod, UnpublishedTrivialMethods> unpublishedMethods = new ConcurrentHashMap<>();
 
     private final LayeredDispatchTableFeature layeredDispatchTableSupport = ImageLayerBuildingSupport.buildingSharedLayer() ? LayeredDispatchTableFeature.singleton() : null;
 
-    private volatile int round = 0;
+    private int inliningRound = 0;
 
     public abstract static class CompileReason {
         /**
@@ -406,9 +394,9 @@ public class CompileQueue {
 
         private final HostedMethod method;
         private final Description description;
-        ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods;
+        ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods;
 
-        SingleCallsiteInlineTask(HostedMethod method, ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods) {
+        SingleCallsiteInlineTask(HostedMethod method, ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
             this.method = method;
             this.description = new Description(method, method.getName());
             this.singleCallsiteMethods = singleCallsiteMethods;
@@ -516,19 +504,6 @@ public class CompileQueue {
                 inlineTrivialMethods(debug);
                 inlineNonTrivialMethods(debug);
                 inlineSingleCallsiteMethods(debug);
-                /*// Reset compilation info data.
-                universe.getMethods().forEach(method -> {
-                    for (MultiMethod multiMethod : method.getAllMultiMethods()) {
-                        HostedMethod hMethod = (HostedMethod) multiMethod;
-                        if (hMethod.compilationInfo.getCompilationGraph() != null) {
-                            hMethod.compilationInfo.hasChanged = false;
-                            hMethod.compilationInfo.callees = new HashMap<>(8);
-                            hMethod.compilationInfo.callsites = new AtomicLong();;
-                        }
-                    }
-                });
-                inlineTrivialMethods(debug);
-                inlineNonTrivialMethods(debug);*/
             }
             if (ImageSingletons.contains(HostedHeapDumpFeature.class)) {
                 ImageSingletons.lookup(HostedHeapDumpFeature.class).afterInlining();
@@ -827,12 +802,12 @@ public class CompileQueue {
     }
 
     protected void inlineTrivialMethods(DebugContext debug) throws InterruptedException {
-        int round = 0;
+        inliningRound = 0;
         do {
             ProgressReporter.singleton().reportStageProgress();
             inliningProgress = false;
-            round++;
-            try (Indent _ = debug.logAndIndent("==== Trivial Inlining  round %d%n", round)) {
+            inliningRound++;
+            try (Indent _ = debug.logAndIndent("==== Trivial Inlining  round %d%n", inliningRound)) {
                 runOnExecutor(() -> {
                     universe.getMethods().forEach(method -> {
                         assert method.isOriginalMethod();
@@ -845,32 +820,47 @@ public class CompileQueue {
                     });
                 });
             }
-            for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedTrivialMethods.entrySet()) {
+            for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedMethods.entrySet()) {
                 entry.getKey().compilationInfo.setCompilationGraph(entry.getValue().unpublishedGraph);
                 if (entry.getValue().newlyTrivial) {
                     inliningProgress = true;
                     entry.getKey().compilationInfo.setTrivialMethod();
                 }
             }
-            unpublishedTrivialMethods.clear();
+            unpublishedMethods.clear();
         } while (inliningProgress);
     }
 
     @SuppressWarnings("try")
+    /*
+     * Unlike InliningBeforeAnalysis, a breadth first search is done instead of a depth first
+     * search. Inlining is only done one level deep per round but all valid callees are visited
+     * (similar to the TrivialInliningPhase). A depth first search is possible, but effort might be
+     * wasted inlining the Nth level callee when the 1st level parent callee might not meet the
+     * inlining threshold. The TrivialInliningPhase is able to recursively do nested inlining within
+     * a single a round because trivial methods are marked before the round begins. Non-trivial
+     * methods worthy of inlining are not known ahead of time (they must be decoded first) so the
+     * same strategy cannot be used.
+     */
     protected void inlineNonTrivialMethods(DebugContext debug) throws InterruptedException {
-        round = 0;
+        inliningRound = 0;
         do {
             ProgressReporter.singleton().reportStageProgress();
             inliningProgress = false;
-            round++;
-            System.out.println("\n==== Non-Trivial Inlining  round " + round);
-            try (Indent ignored = debug.logAndIndent("==== Non-Trivial Inlining  round %d%n", round)) {
+            inliningRound++;
+            System.out.println("\n==== Non-Trivial Inlining  round " + inliningRound); // *** TODO
+                                                                                       // remove
+            try (Indent ignored = debug.logAndIndent("==== Non-Trivial Inlining  round %d%n", inliningRound)) {
                 runOnExecutor(() -> {
                     universe.getMethods().forEach(method -> {
                         assert method.isOriginalMethod();
                         for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                             HostedMethod hMethod = (HostedMethod) multiMethod;
-                            // Use the same fallback as the paper, 50000
+                            /*
+                             * Use the same fallback as
+                             * "An Optimization-Driven Incremental Inline Substitution Algorithm for Just-in-Time Compilers"
+                             * , 50000
+                             */
                             if (hMethod.compilationInfo.getCompilationGraph() != null && hMethod.compilationInfo.sizeLastRound < 50000) {
                                 executor.execute(new NonTrivialInlineTask(hMethod));
                             }
@@ -879,14 +869,16 @@ public class CompileQueue {
                 });
             }
 
-            /* Once we've evaluated all roots, it's finally safe to update the hasChanged flag since no other
-            threads may be checking it. It is also time to publish graphs.*/
+            /*
+             * Once we've evaluated all roots, it's finally safe to update the hasChanged flag since
+             * no other threads may be checking it concurrently. It is also time to publish graphs.
+             */
             universe.getMethods().forEach(method -> {
                 for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                     HostedMethod hMethod = (HostedMethod) multiMethod;
                     if (hMethod.compilationInfo.getCompilationGraph() != null) {
-                        if (unpublishedNonTrivialMethods.containsKey(hMethod)){
-                            hMethod.compilationInfo.setCompilationGraph(unpublishedNonTrivialMethods.get(hMethod).unpublishedGraph);
+                        if (unpublishedMethods.containsKey(hMethod)) {
+                            hMethod.compilationInfo.setCompilationGraph(unpublishedMethods.get(hMethod).unpublishedGraph);
                             hMethod.compilationInfo.hasChanged = true;
                             inliningProgress = true;
                         } else {
@@ -895,42 +887,50 @@ public class CompileQueue {
                     }
                 }
             });
-            unpublishedNonTrivialMethods.clear();
-        } while (inliningProgress && round < 10); //Each round inlines one level deep. Limit depth to avoid recursion.
+            unpublishedMethods.clear();
+            // Each round inlines one level deep. Limit rounds/depth to limit recursion.
+        } while (inliningProgress && inliningRound < 10);
     }
 
     @SuppressWarnings("try")
     protected void inlineSingleCallsiteMethods(DebugContext debug) throws InterruptedException {
-        // Gather all single callsite methods
-        ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods = new ConcurrentHashMap<>();
-        round = 0;
+        ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods = new ConcurrentHashMap<>();
+        inliningRound = 0;
 
-        // Find all methods with only 1 callsite
+        // Gather all single callsite methods
         universe.getMethods().forEach(method -> {
             for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                 HostedMethod hMethod = (HostedMethod) multiMethod;
-                if (hMethod.compilationInfo.getCompilationGraph() != null  && hMethod.compilationInfo.callsites.get() == 1) {
-                    singleCallsiteMethods.put(hMethod,false);
+                if (hMethod.compilationInfo.getCompilationGraph() != null && hMethod.compilationInfo.callsites.get() == 1) {
+                    singleCallsiteMethods.put(hMethod, false);
                 }
             }
         });
-        // Inline gathered single callsite methods
+
+        /*
+         * Collect single callsite methods that have already been inlined, there's no point to
+         * evaluating them as roots in future rounds.
+         */
+        HashSet<HostedMethod> ignoredMethods = new HashSet<>();
         int originalSize = singleCallsiteMethods.size();
-        HashSet<HostedMethod> ignoredMethods = new HashSet<>(); // These single callsite methods have already been inlined, there's no point to evaluating them as roots in future rounds.
+        // Inline single callsite methods
         do {
             ProgressReporter.singleton().reportStageProgress();
             inliningProgress = false;
-            round++;
-            try (Indent ignored = debug.logAndIndent("==== Single Callsite Inlining  round %d%n", round)) {
+            inliningRound++;
+            try (Indent ignored = debug.logAndIndent("==== Single Callsite Inlining  round %d%n", inliningRound)) {
                 runOnExecutor(() -> {
                     universe.getMethods().forEach(method -> {
                         assert method.isOriginalMethod();
                         for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                             HostedMethod hMethod = (HostedMethod) multiMethod;
-                            /* Skip roots that are themselves single callsite methods.
-                            Otherwise, it's possible that the both the root and some of its callees are inlined in the same round.
-                            In such cases, the root becomes unreachable and we wasted effort inlining its callees.
-                            This root's callees will need to wait until next round to be evaluated */
+                            /*
+                             * Skip roots that are themselves single callsite methods. Otherwise,
+                             * it's possible that the both the root and some of its callees are
+                             * inlined in the same round. In such cases, the root becomes
+                             * unreachable and we wasted effort inlining its callees. This root's
+                             * callees should wait until next round to be evaluated
+                             */
                             if (hMethod.compilationInfo.getCompilationGraph() != null && !singleCallsiteMethods.containsKey(hMethod) && !ignoredMethods.contains(hMethod)) {
                                 executor.execute(new SingleCallsiteInlineTask(hMethod, singleCallsiteMethods));
                             }
@@ -938,31 +938,34 @@ public class CompileQueue {
                     });
                 });
             }
-            /* Remove methods from the map that have been inlined this round.
-            We cannot do this during the round due to races with checks on singleCallsiteMethods.containsKey above.
+            /*
+             * Remove methods from the map that have been inlined this round. We cannot do this
+             * during the round due to races with checks on singleCallsiteMethods.containsKey above.
              */
             Iterator<Entry<HostedMethod, Boolean>> iterator = singleCallsiteMethods.entrySet().iterator();
             while (iterator.hasNext()) {
                 Map.Entry<HostedMethod, Boolean> entry = iterator.next();
-                //  Remove the method if we inlined it during the round.
+                // Remove the method if we inlined it during the round.
                 if (entry.getValue()) {
                     singleCallsiteMethods.remove(entry.getKey());
                     ignoredMethods.add(entry.getKey());
                 }
             }
             // Publish modified graphs
-            for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedNonTrivialMethods.entrySet()) {
+            for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedMethods.entrySet()) {
                 entry.getKey().compilationInfo.setCompilationGraph(entry.getValue().unpublishedGraph);
                 inliningProgress = true;
             }
-            unpublishedNonTrivialMethods.clear();
+            unpublishedMethods.clear();
         } while (inliningProgress);
 
-        System.out.println("\n==== Single Callsite Inlining total rounds " + round);
+        System.out.println("\n==== Single Callsite Inlining total rounds " + inliningRound); // ***
+                                                                                             // TODO
+        // remove
         System.out.println("Found this many methods with single callsites originally: " + originalSize);
         System.out.println("Found this many methods with single callsites remaining: " + singleCallsiteMethods.size());
         System.out.println("Found this many ignored methods: " + ignoredMethods.size());
-        //TODO uncomment ? VMError.guarantee(singleCallsiteMethods.isEmpty());
+        // TODO uncomment ? VMError.guarantee(singleCallsiteMethods.isEmpty());
     }
 
     class TrivialInliningPlugin implements InlineInvokePlugin {
@@ -998,8 +1001,9 @@ public class CompileQueue {
 
     class SingleCallsiteInliningPlugin implements InlineInvokePlugin {
         boolean inlinedDuringDecoding;
-        ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods;
-        SingleCallsiteInliningPlugin(ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods){
+        ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods;
+
+        SingleCallsiteInliningPlugin(ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
             this.singleCallsiteMethods = singleCallsiteMethods;
         }
 
@@ -1131,7 +1135,7 @@ public class CompileQueue {
                      * non-deterministic. This is why we are saving graphs to be published at the
                      * end of each round.
                      */
-                    unpublishedTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), checkNewlyTrivial(method, graph)));
+                    unpublishedMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), checkNewlyTrivial(method, graph)));
                 }
             }
         } catch (Throwable ex) {
@@ -1155,16 +1159,16 @@ public class CompileQueue {
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
         try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
             var inliningPlugin = new NonTrivialInliningPlugin();
-            var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin, round);
+            var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin, inliningRound);
             new NonTrivialInlinePhase(decoder, method).apply(graph);
 
-            // Even if we've run out of budget we still need to publish the new graphs
+            // Maybe update the collection of graphs to publish
             if (decoder.inlinedDuringDecoding) {
                 CanonicalizerPhase.create().apply(graph, providers);
-                unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
+                unpublishedMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
             }
 
-            /* Compute new root size with new inlined nodes.*/
+            /* Compute new root size after inlining. */
             method.compilationInfo.sizeLastRound = NodeCostUtil.computeGraphSize(graph);
 
         } catch (Throwable ex) {
@@ -1172,7 +1176,7 @@ public class CompileQueue {
         }
     }
 
-    private void doInlineSingleCallsite(DebugContext debug, HostedMethod method, ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods) {
+    private void doInlineSingleCallsite(DebugContext debug, HostedMethod method, ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
         var providers = runtimeConfig.lookupBackend(method).getProviders();
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
         try (var s = debug.scope("InlineSingleCallsites", graph, method, this)) {
@@ -1180,10 +1184,9 @@ public class CompileQueue {
             var decoder = new InliningGraphDecoder(graph, providers, inliningPlugin);
             new SingleCallsiteInlinePhase(decoder, method).apply(graph);
 
-            // Even if we've run out of budget we still need to publish the new graphs
             if (inliningPlugin.inlinedDuringDecoding) {
                 CanonicalizerPhase.create().apply(graph, providers);
-                unpublishedNonTrivialMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
+                unpublishedMethods.put(method, new UnpublishedTrivialMethods(CompilationGraph.encode(graph), true));
             }
         } catch (Throwable ex) {
             throw debug.handle(ex);
@@ -1231,20 +1234,23 @@ public class CompileQueue {
         HostedMethod root;
         if (evaluatingFirstLevelCallee) {
             root = caller;
-            if (round == 1) {
+            if (inliningRound == 1) {
                 callee.compilationInfo.callsites.incrementAndGet();
             }
         } else {
-            // If the 1st lvl callee is inlined, this 2nd lvl callee will be moved up to the 1st lvl. Record that possibility.
+            // If the root level callee is inlined, this 2nd level callee will be moved up to the
+            // root level and gain a callsite. Record that possibility.
             updateCallsiteCountRecords(callerScope, callee);
             // This is needed to stop ourselves from diving beyond 1 level of inlining
             return false;
         }
 
-        // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead of doing the trial again.
-        if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).lastRoundUpdated != round){
+        // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead
+        // of doing the trial again.
+        if (!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).lastRoundUpdated != inliningRound) {
             // Check lastRoundUpdated in case there are multiple callsites.
-            // If it was updated the current round, we must re-trial since the data is related to a different callsite.
+            // If it was updated the current round, we must re-trial since the data is related to a
+            // different callsite.
             return false;
         }
 
@@ -1266,10 +1272,15 @@ public class CompileQueue {
             return true;
         }
 
-        // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead of doing the trial again.
-        if(!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee)){
-            // Check lastRoundUpdated in case there are multiple callsites.
-            // If it was updated the current round, we must re-trial since the data is related to a different callsite.
+        /*
+         * Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead
+         * of doing the trial again.
+         */
+        if (!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee)) {
+            /*
+             * Check lastRoundUpdated in case there are multiple callsites. If it was updated the
+             * current round, we must re-trial since the data is related to a different callsite.
+             */
             return false;
         }
 
@@ -1277,7 +1288,7 @@ public class CompileQueue {
         return true;
     }
 
-    private boolean makeSingleCallsiteInlineDecision(HostedMethod callee, GraphBuilderContext b, ConcurrentHashMap<HostedMethod,Boolean> singleCallsiteMethods) {
+    private boolean makeSingleCallsiteInlineDecision(HostedMethod callee, GraphBuilderContext b, ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
         PEGraphDecoder.PEMethodScope callerScope = ((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope;
         boolean evaluatingFirstLevelCallee = callerScope.caller == null;
 
@@ -1289,9 +1300,9 @@ public class CompileQueue {
     }
 
     private static void updateCallsiteCountRecords(PEGraphDecoder.PEMethodScope targetScope, HostedMethod callee) {
-        if (targetScope.newCallees.containsKey(callee)){
+        if (targetScope.newCallees.containsKey(callee)) {
             int newCount = targetScope.newCallees.get(callee) + 1;
-            targetScope.newCallees.put(callee,newCount);
+            targetScope.newCallees.put(callee, newCount);
         } else {
             targetScope.newCallees.put(callee, 1);
         }

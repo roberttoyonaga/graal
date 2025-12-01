@@ -26,8 +26,6 @@ package com.oracle.graal.pointsto.phases;
 
 import static com.oracle.graal.pointsto.phases.InlineBeforeAnalysisGraphDecoder.InlineBeforeAnalysisMethodScope.recordInlined;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.graalvm.collections.EconomicSet;
@@ -39,16 +37,10 @@ import com.oracle.graal.pointsto.meta.HostedProviders;
 import com.oracle.graal.pointsto.phases.InlineBeforeAnalysisPolicy.AbstractPolicyScope;
 
 import jdk.graal.compiler.bytecode.BytecodeProvider;
-import jdk.graal.compiler.debug.GraalError;
 import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.graph.NodeSourcePosition;
-import jdk.graal.compiler.nodes.AbstractEndNode;
-import jdk.graal.compiler.nodes.AbstractMergeNode;
 import jdk.graal.compiler.nodes.CallTargetNode;
-import jdk.graal.compiler.nodes.ControlSinkNode;
-import jdk.graal.compiler.nodes.ControlSplitNode;
 import jdk.graal.compiler.nodes.EncodedGraph;
-import jdk.graal.compiler.nodes.FixedNode;
 import jdk.graal.compiler.nodes.FixedWithNextNode;
 import jdk.graal.compiler.nodes.InvokeWithExceptionNode;
 import jdk.graal.compiler.nodes.StructuredGraph;
@@ -57,7 +49,6 @@ import jdk.graal.compiler.nodes.graphbuilderconf.GraphBuilderContext;
 import jdk.graal.compiler.nodes.graphbuilderconf.InlineInvokePlugin;
 import jdk.graal.compiler.nodes.graphbuilderconf.InvocationPlugin;
 import jdk.graal.compiler.nodes.graphbuilderconf.LoopExplosionPlugin;
-import jdk.graal.compiler.nodes.util.GraphUtil;
 import jdk.graal.compiler.replacements.PEGraphDecoder;
 import jdk.graal.compiler.replacements.nodes.MethodHandleWithExceptionNode;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
