@@ -983,13 +983,15 @@ public class CompileQueue {
     }
 
     // Wrapper to clearly identify phase
-    class TrivialInlinePhase extends Phase {
-        final InliningGraphDecoder decoder;
+    class InlinePhase extends Phase {
+        final PEGraphDecoder decoder;
         final HostedMethod method;
+        final String name;
 
-        TrivialInlinePhase(InliningGraphDecoder decoder, HostedMethod method) {
+        InlinePhase(PEGraphDecoder decoder, HostedMethod method, String name) {
             this.decoder = decoder;
             this.method = method;
+            this.name = name;
         }
 
         @Override
@@ -999,47 +1001,7 @@ public class CompileQueue {
 
         @Override
         public CharSequence getName() {
-            return "TrivialInline";
-        }
-    }
-
-    class NonTrivialInlinePhase extends Phase { // TODO merge with other phases . You can pass in a name and Decoder
-        final NonTrivialInliningGraphDecoder decoder;
-        final HostedMethod method;
-
-        NonTrivialInlinePhase(NonTrivialInliningGraphDecoder decoder, HostedMethod method) {
-            this.decoder = decoder;
-            this.method = method;
-        }
-
-        @Override
-        protected void run(StructuredGraph graph) {
-            decoder.decode(method);
-        }
-
-        @Override
-        public CharSequence getName() {
-            return "NonTrivialInline";
-        }
-    }
-
-    class SingleCallsiteInlinePhase extends Phase {
-        final InliningGraphDecoder decoder;
-        final HostedMethod method;
-
-        SingleCallsiteInlinePhase(InliningGraphDecoder decoder, HostedMethod method) {
-            this.decoder = decoder;
-            this.method = method;
-        }
-
-        @Override
-        protected void run(StructuredGraph graph) {
-            decoder.decode(method);
-        }
-
-        @Override
-        public CharSequence getName() {
-            return "SingleCallsiteInline";
+            return name;
         }
     }
 
@@ -1067,7 +1029,7 @@ public class CompileQueue {
         try (var s = debug.scope("InlineTrivial", graph, method, this)) {
             var inliningPlugin = new TrivialInliningPlugin();
             var decoder = new InliningGraphDecoder(graph, providers, inliningPlugin);
-            new TrivialInlinePhase(decoder, method).apply(graph);
+            new InlinePhase(decoder, method, "TrivialInline").apply(graph);
 
             if (inliningPlugin.inlinedDuringDecoding) {
                 CanonicalizerPhase.create().apply(graph, providers);
@@ -1117,7 +1079,7 @@ public class CompileQueue {
         try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
             var inliningPlugin = new NonTrivialInliningPlugin();
             var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin, inliningRound);
-            new NonTrivialInlinePhase(decoder, method).apply(graph);
+            new InlinePhase(decoder, method, "NonTrivialInline").apply(graph);
 
             // Maybe update the collection of graphs to publish
             if (decoder.inlinedDuringDecoding) {
@@ -1139,7 +1101,7 @@ public class CompileQueue {
         try (var s = debug.scope("InlineSingleCallsites", graph, method, this)) {
             var inliningPlugin = new SingleCallsiteInliningPlugin(singleCallsiteMethods);
             var decoder = new InliningGraphDecoder(graph, providers, inliningPlugin);
-            new SingleCallsiteInlinePhase(decoder, method).apply(graph);
+            new InlinePhase(decoder, method, "SingleCallsiteInline").apply(graph);
 
             if (inliningPlugin.inlinedDuringDecoding) {
                 CanonicalizerPhase.create().apply(graph, providers);
