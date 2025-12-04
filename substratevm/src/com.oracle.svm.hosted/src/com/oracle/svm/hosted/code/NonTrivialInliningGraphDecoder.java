@@ -47,10 +47,10 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
 
     NonTrivialInliningGraphDecoder(StructuredGraph graph, Providers providers, com.oracle.svm.hosted.code.CompileQueue.NonTrivialInliningPlugin inliningPlugin, int round) {
         super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, null,
-                        null,
-                        new InlineInvokePlugin[]{inliningPlugin},
-                        null, null, null, null,
-                        new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
+                null,
+                new InlineInvokePlugin[]{inliningPlugin},
+                null, null, null, null,
+                new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
         this.round = round;
     }
 
@@ -88,12 +88,10 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         return super.doInline(methodScope, loopScope, invokeData, inlineInfo, arguments);
     }
 
-    boolean canInline(PEMethodScope inlineScope, HostedMethod caller, HostedMethod callee, boolean evaluatingFirstLevelCallee) {
+    boolean canInline(PEMethodScope inlineScope, HostedMethod root, HostedMethod callee) {
         if (callee.shouldBeInlined()) {
             return true;
         }
-        HostedMethod root = caller;
-        VMError.guarantee(evaluatingFirstLevelCallee, "we should not be evaluating beyond the 1st level");
 
         CalleeInfo calleeInfo = root.compilationInfo.callees.get(callee);
         VMError.guarantee(calleeInfo != null, "This should have been created in doInline");
@@ -116,18 +114,6 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         double t2 = 1;
         double threshold = t1 * Math.pow(2, (calleeCost / (16 * t2)));
         if (bc >= threshold) {
-            /*
-             * Commit the callsite count updates for 2nd level callees being copied into the root
-             * scope.
-             */
-            for (var entry : inlineScope.newCallees.entrySet()) {
-                HostedMethod hMethod = (HostedMethod) entry.getKey();
-                hMethod.compilationInfo.callsites.addAndGet(entry.getValue());
-            }
-            // Inlining into this callsite removes it.
-            callee.compilationInfo.callsites.decrementAndGet();
-            // Remove callee from the "seen" set
-            root.compilationInfo.callees.remove(callee);
             return true;
         }
         /*
@@ -141,11 +127,14 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
     protected void finishInlining(MethodScope is) {
         PEMethodScope inlineScope = (PEMethodScope) is;
         PEMethodScope callerScope = inlineScope.caller;
-        ResolvedJavaMethod inlineMethod = inlineScope.method;
+        HostedMethod callee = (HostedMethod) inlineScope.method;
         LoopScope callerLoopScope = inlineScope.callerLoopScope;
         InvokeData invokeData = inlineScope.invokeData;
+        HostedMethod root = (HostedMethod) callerScope.method;
 
-        if (!canInline(inlineScope, (HostedMethod) callerScope.method, (HostedMethod) inlineMethod, callerScope.caller == null)) {
+        VMError.guarantee(callerScope.caller == null, "we should not be evaluating beyond the root's immediate callees");
+
+        if (!canInline(inlineScope, root, callee)) {
             // This block is essentially the same as InlineBeforeAnalysisGraphDecoder#finishInlining
             if (invokeData.invokePredecessor.next() != null) {
                 killControlFlowNodes(inlineScope, invokeData.invokePredecessor.next());
@@ -162,6 +151,20 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
             handleNonInlinedInvoke(callerScope, callerLoopScope, invokeData);
             return;
         }
+
+        /*
+         * Commit the callsite count updates for 2nd level callees being copied into the root
+         * scope.
+         */
+        for (var entry : inlineScope.newCallees.entrySet()) {
+            HostedMethod hMethod = (HostedMethod) entry.getKey();
+            hMethod.compilationInfo.callsites.addAndGet(entry.getValue());
+        }
+        // Inlining into this callsite removes it.
+        callee.compilationInfo.callsites.decrementAndGet();
+        // Remove callee from the "seen" set
+        root.compilationInfo.callees.remove(callee);
+
         inlinedDuringDecoding = true;
         super.finishInlining(inlineScope);
     }
