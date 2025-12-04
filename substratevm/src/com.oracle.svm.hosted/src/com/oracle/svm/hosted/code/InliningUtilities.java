@@ -25,14 +25,8 @@
 package com.oracle.svm.hosted.code;
 
 import jdk.graal.compiler.graph.Node;
-import jdk.graal.compiler.nodes.FrameState;
-import jdk.graal.compiler.nodes.FullInfopointNode;
-import jdk.graal.compiler.nodes.ParameterNode;
-import jdk.graal.compiler.nodes.StartNode;
 import jdk.graal.compiler.nodes.StructuredGraph;
-import jdk.graal.compiler.nodes.extended.ValueAnchorNode;
 import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
-import jdk.graal.compiler.nodes.spi.ValueProxy;
 import jdk.graal.compiler.replacements.nodes.MethodHandleWithExceptionNode;
 
 import com.oracle.svm.core.SubstrateOptions;
@@ -41,18 +35,14 @@ public class InliningUtilities {
 
     public static boolean isTrivialMethod(StructuredGraph graph) {
         int numInvokes = 0;
-        int numOthers = 0;
+        int size = 0;
         for (Node n : graph.getNodes()) {
-            if (n instanceof StartNode || n instanceof ParameterNode || n instanceof FullInfopointNode || n instanceof ValueProxy || n instanceof ValueAnchorNode || n instanceof FrameState) {
-                continue;
-            }
             if (n instanceof MethodCallTargetNode || n instanceof MethodHandleWithExceptionNode) {
                 numInvokes++;
-            } else {
-                numOthers++;
             }
+            size += n.estimatedNodeSize().value;
 
-            if (!shouldBeTrivial(numInvokes, numOthers, graph)) {
+            if (!shouldBeTrivial(numInvokes, size, graph)) {
                 return false;
             }
         }
@@ -60,12 +50,12 @@ public class InliningUtilities {
         return true;
     }
 
-    private static boolean shouldBeTrivial(int numInvokes, int numOthers, StructuredGraph graph) {
+    private static boolean shouldBeTrivial(int numInvokes, int size, StructuredGraph graph) {
         if (numInvokes == 0) {
             // This is a leaf method => we can be generous.
-            return numOthers <= SubstrateOptions.MaxNodesInTrivialLeafMethod.getValue(graph.getOptions());
+            return size <= SubstrateOptions.MaxTrivialLeafMethodSize.getValue(graph.getOptions());
         } else if (numInvokes <= SubstrateOptions.MaxInvokesInTrivialMethod.getValue(graph.getOptions())) {
-            return numOthers <= SubstrateOptions.MaxNodesInTrivialMethod.getValue(graph.getOptions());
+            return size <= SubstrateOptions.MaxTrivialMethodSize.getValue(graph.getOptions());
         } else {
             return false;
         }
