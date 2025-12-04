@@ -976,7 +976,7 @@ public class CompileQueue {
         @Override
         public void notifyAfterInline(ResolvedJavaMethod methodToInline) {
             inlinedDuringDecoding = true;
-            VMError.guarantee(singleCallsiteMethods.containsKey((HostedMethod) methodToInline));
+            VMError.guarantee(singleCallsiteMethods.containsKey((HostedMethod) methodToInline)); // TODO remove
             // To avoid races we must delay removal until the end of the round. Only mark for now.
             singleCallsiteMethods.put((HostedMethod) methodToInline, true);
         }
@@ -1003,7 +1003,7 @@ public class CompileQueue {
         }
     }
 
-    class NonTrivialInlinePhase extends Phase {
+    class NonTrivialInlinePhase extends Phase { // TODO merge with other phases . You can pass in a name and Decoder
         final NonTrivialInliningGraphDecoder decoder;
         final HostedMethod method;
 
