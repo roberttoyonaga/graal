@@ -66,7 +66,6 @@ import jdk.graal.compiler.nodes.graphbuilderconf.LoopExplosionPlugin;
 import jdk.graal.compiler.options.OptionValues;
 import jdk.graal.compiler.replacements.nodes.MethodHandleWithExceptionNode;
 import jdk.graal.compiler.util.EconomicHashMap;
-import jdk.graal.compiler.util.IntArrayBuilder;
 import jdk.vm.ci.code.Architecture;
 import jdk.vm.ci.meta.Assumptions;
 import jdk.vm.ci.meta.DeoptimizationAction;
