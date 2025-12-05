@@ -801,6 +801,15 @@ public class CompileQueue {
         return !method.compilationInfo.isTrivialMethod() && method.canBeInlined() && InliningUtilities.isTrivialMethod(graph);
     }
 
+    /**
+     * This is a quick operation that inlines methods that are under a defined size threshold.
+     * Focusing on trivial methods first allows the non-trivial inlining to have a stricter cost
+     * constraints and focus only on methods with a high benefit. If the non-trivial inlining was
+     * responsible for inlining trivial methods as well it would need more flexible cost constraints
+     * to handle trivial methods with no computed benefit. Such looser constraints would allow
+     * larger methods with (proportionally more benefit) to more easily be inlined.
+     */
+    @SuppressWarnings("try")
     protected void inlineTrivialMethods(DebugContext debug) throws InterruptedException {
         inliningRound = 0;
         do {
@@ -831,9 +840,8 @@ public class CompileQueue {
         } while (inliningProgress);
     }
 
-    @SuppressWarnings("try")
-    /*
-     * Unlike InliningBeforeAnalysis, a breadth first search is done instead of a depth first
+    /**
+     * Unlike inlining before analysis, a breadth first search is done instead of a depth first
      * search. Inlining is only done one level deep per round but all valid callees are visited
      * (similar to the TrivialInliningPhase). A depth first search is possible, but effort might be
      * wasted inlining the Nth level callee when the 1st level parent callee might not meet the
@@ -842,14 +850,13 @@ public class CompileQueue {
      * methods worthy of inlining are not known ahead of time (they must be decoded first) so the
      * same strategy cannot be used.
      */
+    @SuppressWarnings("try")
     protected void inlineNonTrivialMethods(DebugContext debug) throws InterruptedException {
         inliningRound = 0;
         do {
             ProgressReporter.singleton().reportStageProgress();
             inliningProgress = false;
             inliningRound++;
-            System.out.println("\n==== Non-Trivial Inlining  round " + inliningRound); // *** TODO
-                                                                                       // remove
             try (Indent ignored = debug.logAndIndent("==== Non-Trivial Inlining  round %d%n", inliningRound)) {
                 runOnExecutor(() -> {
                     universe.getMethods().forEach(method -> {
@@ -892,6 +899,14 @@ public class CompileQueue {
         } while (inliningProgress && inliningRound < 10);
     }
 
+    /**
+     * Single callsite methods should be able to be inlined without duplicating code area. Inlining
+     * such methods is done last to avoid the scenario where a single callsite method (method_A) and
+     * its caller (method_B) are both inlined during the same round. Since graphs are only published
+     * at the end of a round, the inlined body of method_B in its caller (method_C) will still
+     * contain the call to method_A. This would duplicate code area if method_B has multiple callers
+     * since method_A has been inlined and also is still reachable through invocations.
+     */
     @SuppressWarnings("try")
     protected void inlineSingleCallsiteMethods(DebugContext debug) throws InterruptedException {
         ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods = new ConcurrentHashMap<>();
@@ -912,7 +927,6 @@ public class CompileQueue {
          * evaluating them as roots in future rounds.
          */
         HashSet<HostedMethod> ignoredMethods = new HashSet<>();
-        int originalSize = singleCallsiteMethods.size();
         // Inline single callsite methods
         do {
             ProgressReporter.singleton().reportStageProgress();
@@ -958,14 +972,6 @@ public class CompileQueue {
             }
             unpublishedMethods.clear();
         } while (inliningProgress);
-
-        System.out.println("\n==== Single Callsite Inlining total rounds " + inliningRound); // ***
-                                                                                             // TODO
-        // remove
-        System.out.println("Found this many methods with single callsites originally: " + originalSize);
-        System.out.println("Found this many methods with single callsites remaining: " + singleCallsiteMethods.size());
-        System.out.println("Found this many ignored methods: " + ignoredMethods.size());
-        // TODO uncomment ? VMError.guarantee(singleCallsiteMethods.isEmpty());
     }
 
     class TrivialInliningPlugin implements InlineInvokePlugin {
@@ -987,6 +993,13 @@ public class CompileQueue {
         }
     }
 
+    /**
+     * This plugin will allow inline trialing of methods have never been visited before, or methods
+     * that have changed since last visited. It will prevent inlining past one level deep (root's
+     * direct callees). When a 2nd level callee is encountered, inlining will be blocked, but the
+     * method's callsite will be recorded in case the 1st level callee inlining is committed (at
+     * which point the method's total callsites increases).
+     */
     class NonTrivialInliningPlugin implements InlineInvokePlugin {
 
         @Override
@@ -999,6 +1012,7 @@ public class CompileQueue {
         }
     }
 
+    /** This plugin will allow inlining methods that have a single callsite. */
     class SingleCallsiteInliningPlugin implements InlineInvokePlugin {
         boolean inlinedDuringDecoding;
         ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods;
@@ -1019,7 +1033,6 @@ public class CompileQueue {
         @Override
         public void notifyAfterInline(ResolvedJavaMethod methodToInline) {
             inlinedDuringDecoding = true;
-            VMError.guarantee(singleCallsiteMethods.containsKey((HostedMethod) methodToInline)); // TODO remove
             // To avoid races we must delay removal until the end of the round. Only mark for now.
             singleCallsiteMethods.put((HostedMethod) methodToInline, true);
         }
@@ -1177,7 +1190,7 @@ public class CompileQueue {
     }
 
     private boolean makeNonTrivialInlineDecision(HostedMethod caller, HostedMethod callee, GraphBuilderContext b) {
-        if (!SubstrateOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
+        if (!LayeredImageOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
             /*
              * We have compiled this method in a prior layer, but don't have the graph available
              * here.
@@ -1200,19 +1213,24 @@ public class CompileQueue {
                 callee.compilationInfo.callsites.incrementAndGet();
             }
         } else {
-            // If the root level callee is inlined, this 2nd level callee will be moved up to the
-            // root level and gain a callsite. Record that possibility.
+            /*
+             * If the root level callee is inlined, this 2nd level callee will be moved up to the
+             * root level and gain a callsite. Record that possibility.
+             */
             updateCallsiteCountRecords(callerScope, callee);
             // This is needed to stop ourselves from diving beyond 1 level of inlining
             return false;
         }
 
-        // Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead
-        // of doing the trial again.
+        /*
+         * Have we cached the B|C of this callee in a previous round? If so, we can reuse it instead
+         * of doing the trial again.
+         */
         if (!callee.compilationInfo.hasChanged && root.compilationInfo.callees.containsKey(callee) && root.compilationInfo.callees.get(callee).lastRoundUpdated != inliningRound) {
-            // Check lastRoundUpdated in case there are multiple callsites.
-            // If it was updated the current round, we must re-trial since the data is related to a
-            // different callsite.
+            /*
+             * Check lastRoundUpdated in case there are multiple callsites. If it was updated the
+             * current round, we must re-trial since the data is related to a different callsite.
+             */
             return false;
         }
 
@@ -1221,7 +1239,7 @@ public class CompileQueue {
     }
 
     private boolean makeNonTrivialInliningPotentialDecision(HostedMethod root, HostedMethod callee) {
-        if (!SubstrateOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
+        if (!LayeredImageOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
             /*
              * We have compiled this method in a prior layer, but don't have the graph available
              * here.
@@ -1262,11 +1280,12 @@ public class CompileQueue {
     }
 
     private static void updateCallsiteCountRecords(PEGraphDecoder.PEMethodScope targetScope, HostedMethod callee) {
-        if (targetScope.newCallees.containsKey(callee)) {
-            int newCount = targetScope.newCallees.get(callee) + 1;
-            targetScope.newCallees.put(callee, newCount);
+        NonTrivialInliningGraphDecoder.NonTrivialInliningMethodScope s = (NonTrivialInliningGraphDecoder.NonTrivialInliningMethodScope) targetScope;
+        if (s.newCallees.containsKey(callee)) {
+            int newCount = s.newCallees.get(callee) + 1;
+            s.newCallees.put(callee, newCount);
         } else {
-            targetScope.newCallees.put(callee, 1);
+            s.newCallees.put(callee, 1);
         }
     }
 

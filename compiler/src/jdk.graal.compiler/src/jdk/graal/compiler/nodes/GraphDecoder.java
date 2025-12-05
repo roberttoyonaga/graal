@@ -65,7 +65,6 @@ import jdk.graal.compiler.nodes.extended.SwitchNode;
 import jdk.graal.compiler.nodes.graphbuilderconf.LoopExplosionPlugin;
 import jdk.graal.compiler.options.OptionValues;
 import jdk.graal.compiler.replacements.nodes.MethodHandleWithExceptionNode;
-import jdk.graal.compiler.util.EconomicHashMap;
 import jdk.vm.ci.code.Architecture;
 import jdk.vm.ci.meta.Assumptions;
 import jdk.vm.ci.meta.DeoptimizationAction;
@@ -143,7 +142,6 @@ public class GraphDecoder {
         public InliningLogCodec.InliningLogDecoder inliningLogDecoder;
         public int benefit = 0;
         public int invokeCount = 0;
-        public EconomicHashMap<ResolvedJavaMethod, Integer> newCallees = new EconomicHashMap<>(4);
 
         @SuppressWarnings("unchecked")
         protected MethodScope(LoopScope callerLoopScope, StructuredGraph graph, EncodedGraph encodedGraph, LoopExplosionPlugin.LoopExplosionKind loopExplosion) {
