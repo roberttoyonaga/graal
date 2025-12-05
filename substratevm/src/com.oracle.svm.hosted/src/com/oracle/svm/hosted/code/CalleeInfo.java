@@ -28,6 +28,11 @@ package com.oracle.svm.hosted.code;
 
 import com.oracle.svm.hosted.meta.HostedMethod;
 
+/**
+ * This class holds info about a root methods callees that can be used during inlining. The root
+ * {@link HostedMethod}'s {@link com.oracle.svm.hosted.code.CompilationInfo} owns a collection of
+ * {@link CalleeInfo} objects.
+ */
 public class CalleeInfo {
     /*
      * This is the size of the graph starting at the root method before inlining this callee. Needed
