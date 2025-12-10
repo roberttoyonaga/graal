@@ -857,7 +857,7 @@ public class CompileQueue {
             ProgressReporter.singleton().reportStageProgress();
             inliningProgress = false;
             inliningRound++;
-            try (Indent ignored = debug.logAndIndent("==== Non-Trivial Inlining  round %d%n", inliningRound)) {
+            try (Indent _ = debug.logAndIndent("==== Non-Trivial Inlining  round %d%n", inliningRound)) {
                 runOnExecutor(() -> {
                     universe.getMethods().forEach(method -> {
                         assert method.isOriginalMethod();
@@ -932,7 +932,7 @@ public class CompileQueue {
             ProgressReporter.singleton().reportStageProgress();
             inliningProgress = false;
             inliningRound++;
-            try (Indent ignored = debug.logAndIndent("==== Single Callsite Inlining  round %d%n", inliningRound)) {
+            try (Indent _ = debug.logAndIndent("==== Single Callsite Inlining  round %d%n", inliningRound)) {
                 runOnExecutor(() -> {
                     universe.getMethods().forEach(method -> {
                         assert method.isOriginalMethod();
@@ -1132,7 +1132,7 @@ public class CompileQueue {
         }
         var providers = runtimeConfig.lookupBackend(method).getProviders();
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
-        try (var s = debug.scope("InlineNonTrivial", graph, method, this)) {
+        try (var _ = debug.scope("InlineNonTrivial", graph, method, this)) {
             var inliningPlugin = new NonTrivialInliningPlugin();
             var decoder = new NonTrivialInliningGraphDecoder(graph, providers, inliningPlugin, inliningRound);
             new InlinePhase(decoder, method, "NonTrivialInline").apply(graph);
@@ -1154,7 +1154,7 @@ public class CompileQueue {
     private void doInlineSingleCallsite(DebugContext debug, HostedMethod method, ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
         var providers = runtimeConfig.lookupBackend(method).getProviders();
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
-        try (var s = debug.scope("InlineSingleCallsites", graph, method, this)) {
+        try (var _ = debug.scope("InlineSingleCallsites", graph, method, this)) {
             var inliningPlugin = new SingleCallsiteInliningPlugin(singleCallsiteMethods);
             var decoder = new InliningGraphDecoder(graph, providers, inliningPlugin);
             new InlinePhase(decoder, method, "SingleCallsiteInline").apply(graph);
@@ -1238,7 +1238,7 @@ public class CompileQueue {
         return true;
     }
 
-    private boolean makeNonTrivialInliningPotentialDecision(HostedMethod root, HostedMethod callee) {
+    private static boolean makeNonTrivialInliningPotentialDecision(HostedMethod root, HostedMethod callee) {
         if (!LayeredImageOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
             /*
              * We have compiled this method in a prior layer, but don't have the graph available
@@ -1268,7 +1268,7 @@ public class CompileQueue {
         return true;
     }
 
-    private boolean makeSingleCallsiteInlineDecision(HostedMethod callee, GraphBuilderContext b, ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
+    private static boolean makeSingleCallsiteInlineDecision(HostedMethod callee, GraphBuilderContext b, ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
         PEGraphDecoder.PEMethodScope callerScope = ((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope;
         boolean evaluatingFirstLevelCallee = callerScope.caller == null;
 
