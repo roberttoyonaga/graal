@@ -54,7 +54,6 @@ public class CompilationInfo {
     // Callees that have been evaluated but did not meet the inlining threshold.
     public Map<HostedMethod, CalleeInfo> callees = new HashMap<>(8);
 
-
     protected final HostedMethod method;
 
     protected final AtomicBoolean inParseQueue = new AtomicBoolean(false);

@@ -40,16 +40,18 @@ import jdk.graal.compiler.replacements.PEGraphDecoder;
 
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 
-/** This is a general inlining decoder that is used for both trivial inlining and single callsite inlining.
- * Different plugins allow for different functionality.*/
+/**
+ * This is a general inlining decoder that is used for both trivial inlining and single callsite
+ * inlining. Different plugins allow for different functionality.
+ */
 class InliningGraphDecoder extends PEGraphDecoder {
 
     InliningGraphDecoder(StructuredGraph graph, Providers providers, InlineInvokePlugin inliningPlugin) {
         super(AnalysisParsedGraph.HOST_ARCHITECTURE, graph, providers, null,
-                null,
-                new InlineInvokePlugin[]{inliningPlugin},
-                null, null, null, null,
-                new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
+                        null,
+                        new InlineInvokePlugin[]{inliningPlugin},
+                        null, null, null, null,
+                        new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), true, false);
     }
 
     @Override

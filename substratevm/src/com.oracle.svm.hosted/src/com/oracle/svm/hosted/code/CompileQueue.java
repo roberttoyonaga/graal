@@ -1169,12 +1169,7 @@ public class CompileQueue {
     }
 
     private boolean makeInlineDecision(HostedMethod method, HostedMethod callee) {
-        if (!LayeredImageOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
-            /*
-             * We have compiled this method in a prior layer or this method's compilation is delayed
-             * to the application layer, but don't have the graph available here.
-             */
-            assert callee.isCompiledInPriorLayer() || callee.wrapped.isDelayed() : method;
+        if (!isCalleeGraphAvailable(method, callee)) {
             return false;
         }
         if (universe.hostVM().neverInlineTrivial(method.getWrapped(), callee.getWrapped())) {
@@ -1190,12 +1185,7 @@ public class CompileQueue {
     }
 
     private boolean makeNonTrivialInlineDecision(HostedMethod caller, HostedMethod callee, GraphBuilderContext b) {
-        if (!LayeredImageOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
-            /*
-             * We have compiled this method in a prior layer, but don't have the graph available
-             * here.
-             */
-            assert callee.isCompiledInPriorLayer() : caller;
+        if (!isCalleeGraphAvailable(caller, callee)) {
             return false;
         }
 
@@ -1239,12 +1229,7 @@ public class CompileQueue {
     }
 
     private static boolean makeNonTrivialInliningPotentialDecision(HostedMethod root, HostedMethod callee) {
-        if (!LayeredImageOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
-            /*
-             * We have compiled this method in a prior layer, but don't have the graph available
-             * here.
-             */
-            assert callee.isCompiledInPriorLayer() : root;
+        if (!isCalleeGraphAvailable(root, callee)) {
             return false;
         }
 
@@ -1277,6 +1262,18 @@ public class CompileQueue {
         }
 
         return false;
+    }
+
+    private static boolean isCalleeGraphAvailable(HostedMethod caller, HostedMethod callee) {
+        if (!LayeredImageOptions.UseSharedLayerStrengthenedGraphs.getValue() && callee.compilationInfo.getCompilationGraph() == null) {
+            /*
+             * We have compiled this method in a prior layer or this method's compilation is delayed
+             * to the application layer, but don't have the graph available here.
+             */
+            assert callee.isCompiledInPriorLayer() || callee.wrapped.isDelayed() : caller;
+            return false;
+        }
+        return true;
     }
 
     private static void updateCallsiteCountRecords(PEGraphDecoder.PEMethodScope targetScope, HostedMethod callee) {
