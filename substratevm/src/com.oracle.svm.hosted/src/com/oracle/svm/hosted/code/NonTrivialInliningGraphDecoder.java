@@ -119,6 +119,7 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         if (callee.shouldBeInlined()) {
             return true;
         }
+        VMError.guarantee(inlineScope.caller.caller == null, "Inliner should not be evaluating beyond the root's immediate callees (unless forced by annotations).");
 
         CalleeInfo calleeInfo = root.compilationInfo.callees.get(callee);
         VMError.guarantee(calleeInfo != null, "CalleeInfo should have been created in doInline");
@@ -153,8 +154,6 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         LoopScope callerLoopScope = inlineScope.callerLoopScope;
         InvokeData invokeData = inlineScope.invokeData;
         HostedMethod root = (HostedMethod) callerScope.method;
-
-        VMError.guarantee(callerScope.caller == null, "Inliner should not be evaluating beyond the root's immediate callees");
 
         if (!canInline(inlineScope, root, callee)) {
             // This block is essentially the same as InlineBeforeAnalysisGraphDecoder#finishInlining
