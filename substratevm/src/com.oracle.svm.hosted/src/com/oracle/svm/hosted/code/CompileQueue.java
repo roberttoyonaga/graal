@@ -32,8 +32,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -394,17 +392,15 @@ public class CompileQueue {
 
         private final HostedMethod method;
         private final Description description;
-        ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods;
 
-        SingleCallsiteInlineTask(HostedMethod method, ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
+        SingleCallsiteInlineTask(HostedMethod method) {
             this.method = method;
             this.description = new Description(method, method.getName());
-            this.singleCallsiteMethods = singleCallsiteMethods;
         }
 
         @Override
         public void run(DebugContext debug) {
-            doInlineSingleCallsite(debug, method, singleCallsiteMethods);
+            doInlineSingleCallsite(debug, method);
         }
 
         @Override
@@ -909,69 +905,36 @@ public class CompileQueue {
      */
     @SuppressWarnings("try")
     protected void inlineSingleCallsiteMethods(DebugContext debug) throws InterruptedException {
-        ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods = new ConcurrentHashMap<>();
-        inliningRound = 0;
-
-        // Gather all single callsite methods
-        universe.getMethods().forEach(method -> {
-            for (MultiMethod multiMethod : method.getAllMultiMethods()) {
-                HostedMethod hMethod = (HostedMethod) multiMethod;
-                if (hMethod.compilationInfo.getCompilationGraph() != null && hMethod.compilationInfo.callsites.get() == 1) {
-                    singleCallsiteMethods.put(hMethod, false);
-                }
-            }
-        });
+        ProgressReporter.singleton().reportStageProgress();
 
         /*
-         * Collect single callsite methods that have already been inlined, there's no point to
-         * evaluating them as roots in future rounds.
+         * Only a single round is needed. Inlining single callsite methods will not create new
+         * single callsite methods.
          */
-        HashSet<HostedMethod> ignoredMethods = new HashSet<>();
-        // Inline single callsite methods
-        do {
-            ProgressReporter.singleton().reportStageProgress();
-            inliningProgress = false;
-            inliningRound++;
-            try (Indent _ = debug.logAndIndent("==== Single Callsite Inlining  round %d%n", inliningRound)) {
-                runOnExecutor(() -> {
-                    universe.getMethods().forEach(method -> {
-                        assert method.isOriginalMethod();
-                        for (MultiMethod multiMethod : method.getAllMultiMethods()) {
-                            HostedMethod hMethod = (HostedMethod) multiMethod;
-                            /*
-                             * Skip roots that are themselves single callsite methods. Otherwise,
-                             * it's possible that the both the root and some of its callees are
-                             * inlined in the same round. In such cases, the root becomes
-                             * unreachable and we wasted effort inlining its callees. This root's
-                             * callees should wait until next round to be evaluated
-                             */
-                            if (hMethod.compilationInfo.getCompilationGraph() != null && !singleCallsiteMethods.containsKey(hMethod) && !ignoredMethods.contains(hMethod)) {
-                                executor.execute(new SingleCallsiteInlineTask(hMethod, singleCallsiteMethods));
-                            }
+        try (Indent _ = debug.logAndIndent("==== Single Callsite Inlining  round %n")) {
+            runOnExecutor(() -> {
+                universe.getMethods().forEach(method -> {
+                    assert method.isOriginalMethod();
+                    for (MultiMethod multiMethod : method.getAllMultiMethods()) {
+                        HostedMethod hMethod = (HostedMethod) multiMethod;
+                        /*
+                         * Skip roots that are themselves single callsite methods. Otherwise, it's
+                         * possible that the both the root and some of its callees are inlined in
+                         * the same round. In such cases, the root becomes unreachable and we wasted
+                         * effort inlining its callees.
+                         */
+                        if (hMethod.compilationInfo.getCompilationGraph() != null && hMethod.compilationInfo.callsites.get() != 1) {
+                            executor.execute(new SingleCallsiteInlineTask(hMethod));
                         }
-                    });
+                    }
                 });
-            }
-            /*
-             * Remove methods from the map that have been inlined this round. We cannot do this
-             * during the round due to races with checks on singleCallsiteMethods.containsKey above.
-             */
-            Iterator<Entry<HostedMethod, Boolean>> iterator = singleCallsiteMethods.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<HostedMethod, Boolean> entry = iterator.next();
-                // Remove the method if we inlined it during the round.
-                if (entry.getValue()) {
-                    singleCallsiteMethods.remove(entry.getKey());
-                    ignoredMethods.add(entry.getKey());
-                }
-            }
-            // Publish modified graphs
-            for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedMethods.entrySet()) {
-                entry.getKey().compilationInfo.setCompilationGraph(entry.getValue().unpublishedGraph);
-                inliningProgress = true;
-            }
-            unpublishedMethods.clear();
-        } while (inliningProgress);
+            });
+        }
+        // Publish modified graphs
+        for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedMethods.entrySet()) {
+            entry.getKey().compilationInfo.setCompilationGraph(entry.getValue().unpublishedGraph);
+        }
+        unpublishedMethods.clear();
     }
 
     class TrivialInliningPlugin implements InlineInvokePlugin {
@@ -1015,15 +978,10 @@ public class CompileQueue {
     /** This plugin will allow inlining methods that have a single callsite. */
     class SingleCallsiteInliningPlugin implements InlineInvokePlugin {
         boolean inlinedDuringDecoding;
-        ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods;
-
-        SingleCallsiteInliningPlugin(ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
-            this.singleCallsiteMethods = singleCallsiteMethods;
-        }
 
         @Override
         public InlineInfo shouldInlineInvoke(GraphBuilderContext b, ResolvedJavaMethod method, ValueNode[] args) {
-            if (makeSingleCallsiteInlineDecision((HostedMethod) method, b, singleCallsiteMethods) && b.recursiveInliningDepth(method) == 0) {
+            if (makeSingleCallsiteInlineDecision((HostedMethod) method) && b.recursiveInliningDepth(method) == 0) {
                 return InlineInfo.createStandardInlineInfo(method);
             } else {
                 return InlineInfo.DO_NOT_INLINE_WITH_EXCEPTION;
@@ -1033,8 +991,6 @@ public class CompileQueue {
         @Override
         public void notifyAfterInline(ResolvedJavaMethod methodToInline) {
             inlinedDuringDecoding = true;
-            // To avoid races we must delay removal until the end of the round. Only mark for now.
-            singleCallsiteMethods.put((HostedMethod) methodToInline, true);
         }
     }
 
@@ -1151,11 +1107,11 @@ public class CompileQueue {
         }
     }
 
-    private void doInlineSingleCallsite(DebugContext debug, HostedMethod method, ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
+    private void doInlineSingleCallsite(DebugContext debug, HostedMethod method) {
         var providers = runtimeConfig.lookupBackend(method).getProviders();
         var graph = method.compilationInfo.createGraph(debug, getCustomizedOptions(method, debug), CompilationIdentifier.INVALID_COMPILATION_ID, false);
         try (var _ = debug.scope("InlineSingleCallsites", graph, method, this)) {
-            var inliningPlugin = new SingleCallsiteInliningPlugin(singleCallsiteMethods);
+            var inliningPlugin = new SingleCallsiteInliningPlugin();
             var decoder = new InliningGraphDecoder(graph, providers, inliningPlugin);
             new InlinePhase(decoder, method, "SingleCallsiteInline").apply(graph);
 
@@ -1253,15 +1209,8 @@ public class CompileQueue {
         return true;
     }
 
-    private static boolean makeSingleCallsiteInlineDecision(HostedMethod callee, GraphBuilderContext b, ConcurrentHashMap<HostedMethod, Boolean> singleCallsiteMethods) {
-        PEGraphDecoder.PEMethodScope callerScope = ((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope;
-        boolean evaluatingFirstLevelCallee = callerScope.caller == null;
-
-        if (evaluatingFirstLevelCallee && singleCallsiteMethods.containsKey(callee)) {
-            return true;
-        }
-
-        return false;
+    private static boolean makeSingleCallsiteInlineDecision(HostedMethod callee) {
+        return callee.compilationInfo.callsites.get() == 1;
     }
 
     private static boolean isCalleeGraphAvailable(HostedMethod caller, HostedMethod callee) {
