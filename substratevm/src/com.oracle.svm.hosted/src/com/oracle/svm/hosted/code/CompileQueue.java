@@ -169,6 +169,12 @@ public class CompileQueue {
         }
     }
 
+    /*
+     * Use the same fallback as
+     * "An Optimization-Driven Incremental Inline Substitution Algorithm for Just-in-Time Compilers"
+     */
+    private static final int FALLBACK_SIZE = 50000;
+
     protected final HostedUniverse universe;
     private final Boolean deoptimizeAll;
     protected final List<Policy> policies;
@@ -809,9 +815,7 @@ public class CompileQueue {
     protected void inlineTrivialMethods(DebugContext debug) throws InterruptedException {
         inliningRound = 0;
         do {
-            ProgressReporter.singleton().reportStageProgress();
-            inliningProgress = false;
-            inliningRound++;
+            beginRound();
             try (Indent _ = debug.logAndIndent("==== Trivial Inlining  round %d%n", inliningRound)) {
                 runOnExecutor(() -> {
                     universe.getMethods().forEach(method -> {
@@ -850,21 +854,14 @@ public class CompileQueue {
     protected void inlineNonTrivialMethods(DebugContext debug) throws InterruptedException {
         inliningRound = 0;
         do {
-            ProgressReporter.singleton().reportStageProgress();
-            inliningProgress = false;
-            inliningRound++;
+            beginRound();
             try (Indent _ = debug.logAndIndent("==== Non-Trivial Inlining  round %d%n", inliningRound)) {
                 runOnExecutor(() -> {
                     universe.getMethods().forEach(method -> {
                         assert method.isOriginalMethod();
                         for (MultiMethod multiMethod : method.getAllMultiMethods()) {
                             HostedMethod hMethod = (HostedMethod) multiMethod;
-                            /*
-                             * Use the same fallback as
-                             * "An Optimization-Driven Incremental Inline Substitution Algorithm for Just-in-Time Compilers"
-                             * , 50000
-                             */
-                            if (hMethod.compilationInfo.getCompilationGraph() != null && hMethod.compilationInfo.sizeLastRound < 50000) {
+                            if (hMethod.compilationInfo.getCompilationGraph() != null) {
                                 executor.execute(new NonTrivialInlineTask(hMethod));
                             }
                         }
@@ -901,40 +898,68 @@ public class CompileQueue {
      * its caller (method_B) are both inlined during the same round. Since graphs are only published
      * at the end of a round, the inlined body of method_B in its caller (method_C) will still
      * contain the call to method_A. This would duplicate code area if method_B has multiple callers
-     * since method_A has been inlined and also is still reachable through invocations.
+     * since method_A has been inlined and also is still reachable through invocations. Inlining
+     * single callsite methods will not create new single callsite methods.
      */
     @SuppressWarnings("try")
     protected void inlineSingleCallsiteMethods(DebugContext debug) throws InterruptedException {
-        ProgressReporter.singleton().reportStageProgress();
-
-        /*
-         * Only a single round is needed. Inlining single callsite methods will not create new
-         * single callsite methods.
-         */
-        try (Indent _ = debug.logAndIndent("==== Single Callsite Inlining  round %n")) {
-            runOnExecutor(() -> {
-                universe.getMethods().forEach(method -> {
-                    assert method.isOriginalMethod();
-                    for (MultiMethod multiMethod : method.getAllMultiMethods()) {
-                        HostedMethod hMethod = (HostedMethod) multiMethod;
-                        /*
-                         * Skip roots that are themselves single callsite methods. Otherwise, it's
-                         * possible that the both the root and some of its callees are inlined in
-                         * the same round. In such cases, the root becomes unreachable and we wasted
-                         * effort inlining its callees.
-                         */
-                        if (hMethod.compilationInfo.getCompilationGraph() != null && hMethod.compilationInfo.callsites.get() != 1) {
-                            executor.execute(new SingleCallsiteInlineTask(hMethod));
+        inliningRound = 0;
+        do {
+            beginRound();
+            try (Indent _ = debug.logAndIndent("==== Single Callsite Inlining  round %n")) {
+                runOnExecutor(() -> {
+                    universe.getMethods().forEach(method -> {
+                        assert method.isOriginalMethod();
+                        for (MultiMethod multiMethod : method.getAllMultiMethods()) {
+                            HostedMethod hMethod = (HostedMethod) multiMethod;
+                            if (shouldEvaluateRootForSingleCallsiteInlining(hMethod)) {
+                                executor.execute(new SingleCallsiteInlineTask(hMethod));
+                            }
                         }
-                    }
+                    });
                 });
-            });
+            }
+            // Publish modified graphs
+            for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedMethods.entrySet()) {
+                entry.getKey().compilationInfo.setCompilationGraph(entry.getValue().unpublishedGraph);
+                inliningProgress = true;
+            }
+            unpublishedMethods.clear();
+        } while (inliningProgress);
+
+    }
+
+    private boolean shouldEvaluateRootForSingleCallsiteInlining(HostedMethod root) {
+        if (root.compilationInfo.getCompilationGraph() == null) {
+            return false;
         }
-        // Publish modified graphs
-        for (Map.Entry<HostedMethod, UnpublishedTrivialMethods> entry : unpublishedMethods.entrySet()) {
-            entry.getKey().compilationInfo.setCompilationGraph(entry.getValue().unpublishedGraph);
+
+        if (inliningRound == 1) {
+            /*
+             * Skip roots that are themselves single callsite methods. Otherwise, it's possible that
+             * the both the root and some of its callees are both single callsite methods. In such
+             * cases, the root becomes unreachable and we wasted effort inlining its callees.
+             */
+            if (root.compilationInfo.callsites.get() != 1) {
+                return true;
+            }
+        } else {
+            /*
+             * After the first round, we must visit roots that are single callsite methods which
+             * failed the inlining threshold last round. Otherwise, their callees will never get
+             * evaluated.
+             */
+            if (root.compilationInfo.callsites.get() == (1 - inliningRound)) {
+                return true;
+            }
         }
-        unpublishedMethods.clear();
+        return false;
+    }
+
+    private void beginRound() {
+        ProgressReporter.singleton().reportStageProgress();
+        inliningProgress = false;
+        inliningRound++;
     }
 
     class TrivialInliningPlugin implements InlineInvokePlugin {
@@ -981,7 +1006,7 @@ public class CompileQueue {
 
         @Override
         public InlineInfo shouldInlineInvoke(GraphBuilderContext b, ResolvedJavaMethod method, ValueNode[] args) {
-            if (makeSingleCallsiteInlineDecision((HostedMethod) method) && b.recursiveInliningDepth(method) == 0) {
+            if (makeSingleCallsiteInlineDecision((HostedMethod) b.getMethod(), (HostedMethod) method) && b.recursiveInliningDepth(method) == 0) {
                 return InlineInfo.createStandardInlineInfo(method);
             } else {
                 return InlineInfo.DO_NOT_INLINE_WITH_EXCEPTION;
@@ -1181,7 +1206,7 @@ public class CompileQueue {
         }
 
         // Either the callee has not been seen before, or it has changed. We should trial it.
-        return true;
+        return isSizeWithinLimit(caller, callee);
     }
 
     private static boolean makeNonTrivialInliningPotentialDecision(HostedMethod root, HostedMethod callee) {
@@ -1206,11 +1231,26 @@ public class CompileQueue {
         }
 
         // Either the callee has not been seen before, or it has changed. We should trial it.
+        return isSizeWithinLimit(root, callee);
+    }
+
+    private boolean makeSingleCallsiteInlineDecision(HostedMethod caller, HostedMethod callee) {
+        if (callee.compilationInfo.callsites.get() != 1) {
+            return false;
+        }
+        if (!isSizeWithinLimit(caller, callee)) {
+            /*
+             * Since it cannot be inlined, reuse the callsite count field to mark it for evaluation
+             * as a root next round.
+             */
+            callee.compilationInfo.callsites.set(-inliningRound);
+            return false;
+        }
         return true;
     }
 
-    private static boolean makeSingleCallsiteInlineDecision(HostedMethod callee) {
-        return callee.compilationInfo.callsites.get() == 1;
+    private static boolean isSizeWithinLimit(HostedMethod caller, HostedMethod callee) {
+        return caller.compilationInfo.sizeLastRound + callee.compilationInfo.sizeLastRound < FALLBACK_SIZE;
     }
 
     private static boolean isCalleeGraphAvailable(HostedMethod caller, HostedMethod callee) {
