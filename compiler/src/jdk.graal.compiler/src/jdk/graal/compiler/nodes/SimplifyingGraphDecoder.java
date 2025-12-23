@@ -198,7 +198,8 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
         try (DebugCloseable a = CanonicalizeFixedNode.start(debug)) {
             Node canonical = canonicalizeFixedNode(methodScope, loopScope, node);
             if (canonical != node) {
-                handleCanonicalization(loopScope, nodeOrderId, node, canonical);
+                methodScope.benefit++;
+                handleCanonicalization(loopScope, nodeOrderId, node, canonical, methodScope);
             }
         }
     }
@@ -287,6 +288,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
             methodScope.reader.setByteIndex(successorsByteIndex + (IfNode.SUCCESSOR_EDGES_COUNT * methodScope.orderIdWidth));
 
             removeSplit(methodScope, loopScope, ifNode, survivingOrderId);
+            methodScope.benefit += 55;
             return true;
         } else if (node instanceof IntegerSwitchNode switchNode && switchNode.value().isConstant()) {
             /*
@@ -306,6 +308,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
             methodScope.reader.setByteIndex(successorsByteIndex + size * methodScope.orderIdWidth);
 
             removeSplit(methodScope, loopScope, switchNode, survivingOrderId);
+            methodScope.benefit += 55;
             return true;
         } else {
             return false;
@@ -328,20 +331,21 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
         }
     }
 
-    private static Node canonicalizeFixedNodeToNull(FixedNode node) {
+    private static Node canonicalizeFixedNodeToNull(FixedNode node, MethodScope methodScope) {
         /*
          * When a node is unnecessary, we must not remove it right away because there might be nodes
          * that use it as a guard input. Therefore, we replace it with a more lightweight node
          * (which is floating and has no inputs).
          */
+        methodScope.benefit += 35;
         return new CanonicalizeToNullNode(node.stamp);
     }
 
     @SuppressWarnings("try")
-    private void handleCanonicalization(LoopScope loopScope, int nodeOrderId, FixedNode node, Node c) {
+    private void handleCanonicalization(LoopScope loopScope, int nodeOrderId, FixedNode node, Node c, MethodScope methodScope) {
         assert c != node : "unnecessary call";
         try (DebugCloseable position = graph.withNodeSourcePosition(node)) {
-            Node canonical = c == null ? canonicalizeFixedNodeToNull(node) : c;
+            Node canonical = c == null ? canonicalizeFixedNodeToNull(node, methodScope) : c;
             if (!canonical.isAlive()) {
                 assert !canonical.isDeleted();
                 canonical = graph.addOrUniqueWithInputs(canonical);
@@ -354,6 +358,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
                     node.safeDelete();
                     for (Node successor : successorSnapshot) {
                         successor.safeDelete();
+                        methodScope.benefit += 15;
                     }
                 } else if (canonical instanceof WithExceptionNode) {
                     // will be handled below
@@ -394,7 +399,9 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
                      * to add additional usages later on for which we need a node. Therefore, we
                      * just do nothing and leave the node in place.
                      */
+                    methodScope.benefit += 20;
                 } else if (canonical != node) {
+                    methodScope.benefit++;
                     if (!canonical.isAlive()) {
                         assert !canonical.isDeleted();
                         canonical = graph.addOrUniqueWithInputs(canonical);
