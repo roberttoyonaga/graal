@@ -141,7 +141,6 @@ public class GraphDecoder {
          */
         public InliningLogCodec.InliningLogDecoder inliningLogDecoder;
         public int benefit = 0;
-        public int invokeCount = 0;
 
         @SuppressWarnings("unchecked")
         protected MethodScope(LoopScope callerLoopScope, StructuredGraph graph, EncodedGraph encodedGraph, LoopExplosionPlugin.LoopExplosionKind loopExplosion) {
@@ -1027,7 +1026,6 @@ public class GraphDecoder {
             } else if (node instanceof Invoke) {
                 InvokeData invokeData = readInvokeData(methodScope, nodeOrderId, (Invoke) node);
                 resultScope = handleInvoke(methodScope, loopScope, invokeData);
-                methodScope.invokeCount++;
             } else if (node instanceof MethodHandleWithExceptionNode methodHandle) {
                 InvokableData<MethodHandleWithExceptionNode> invokableData = readInvokableData(methodScope, nodeOrderId, methodHandle);
                 resultScope = handleMethodHandle(methodScope, loopScope, invokableData);

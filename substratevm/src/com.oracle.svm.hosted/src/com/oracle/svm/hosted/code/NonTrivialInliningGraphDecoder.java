@@ -126,10 +126,6 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
 
         double currentSize = NodeCostUtil.computeGraphSize(graph);
         double calleeCost = (currentSize - calleeInfo.sizeBeforeInlining);
-        // Similar to the TrivialInliningPhase, we can be a bit more lenient with leaf methods
-        if (inlineScope.invokeCount == 0) {
-            calleeCost = calleeCost / 4.0;
-        }
 
         double offset = 1.0;
         double bc = (offset + inlineScope.benefit) * Math.pow(root.compilationInfo.callsites.get(), 2) / calleeCost;

@@ -358,7 +358,7 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
                     node.safeDelete();
                     for (Node successor : successorSnapshot) {
                         successor.safeDelete();
-                        methodScope.benefit += 15;
+                        methodScope.benefit += 30;
                     }
                 } else if (canonical instanceof WithExceptionNode) {
                     // will be handled below
