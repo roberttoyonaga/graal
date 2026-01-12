@@ -46,12 +46,12 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
  * This decoder is used after trivial inlining. It accounts for expected optimization benefit when
  * making inlining decisions. Callees are "trialed" by first being inlined before a decision is
  * made. This allows expected cost and benefit to be computed. If inlining is denied, then the nodes
- * moved into the caller are rolled back similarly to what done in the
+ * moved into the caller are rolled back similarly to what is done in the
  * {@link com.oracle.graal.pointsto.phases.InlineBeforeAnalysisGraphDecoder}.
  */
 class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
-    public class NonTrivialInliningMethodScope extends PEMethodScope {
-        public EconomicHashMap<ResolvedJavaMethod, Integer> newCallees;
+    class NonTrivialInliningMethodScope extends PEMethodScope {
+        EconomicHashMap<ResolvedJavaMethod, Integer> newCallees;
 
         NonTrivialInliningMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope, EncodedGraph encodedGraph, ResolvedJavaMethod method,
                         InvokeData invokeData, int inliningDepth, ValueNode[] arguments) {
@@ -115,7 +115,7 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         return super.doInline(methodScope, loopScope, invokeData, inlineInfo, arguments);
     }
 
-    boolean canInline(PEMethodScope inlineScope, HostedMethod root, HostedMethod callee) {
+    private boolean canInline(PEMethodScope inlineScope, HostedMethod root, HostedMethod callee) {
         if (callee.shouldBeInlined()) {
             return true;
         }

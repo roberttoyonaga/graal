@@ -982,11 +982,11 @@ public class CompileQueue {
     }
 
     /**
-     * This plugin will allow inline trialing of methods have never been visited before, or methods
-     * that have changed since last visited. It will prevent inlining past one level deep (root's
-     * direct callees). When a 2nd level callee is encountered, inlining will be blocked, but the
-     * method's callsite will be recorded in case the 1st level callee inlining is committed (at
-     * which point the method's total callsites increases).
+     * This plugin will allow inline trialing of methods which have never been visited before, or
+     * methods that have changed since last visited. It will prevent inlining past one level deep
+     * (root's direct callees). When a 2nd level callee is encountered, inlining will be blocked,
+     * but the method's callsite will be recorded in case the 1st level callee inlining is committed
+     * (at which point the method's total callsites increases).
      */
     class NonTrivialInliningPlugin implements InlineInvokePlugin {
 
