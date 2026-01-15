@@ -25,8 +25,12 @@
 package com.oracle.svm.hosted.code;
 
 import jdk.graal.compiler.graph.Node;
+import jdk.graal.compiler.nodes.FullInfopointNode;
+import jdk.graal.compiler.nodes.StartNode;
 import jdk.graal.compiler.nodes.StructuredGraph;
+import jdk.graal.compiler.nodes.extended.ValueAnchorNode;
 import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
+import jdk.graal.compiler.nodes.spi.ValueProxy;
 import jdk.graal.compiler.replacements.nodes.MethodHandleWithExceptionNode;
 
 import com.oracle.svm.core.SubstrateOptions;
@@ -37,6 +41,9 @@ public class InliningUtilities {
         int numInvokes = 0;
         int size = 0;
         for (Node n : graph.getNodes()) {
+            if (n instanceof StartNode || n instanceof FullInfopointNode || n instanceof ValueProxy || n instanceof ValueAnchorNode) {
+                continue;
+            }
             if (n instanceof MethodCallTargetNode || n instanceof MethodHandleWithExceptionNode) {
                 numInvokes++;
             }

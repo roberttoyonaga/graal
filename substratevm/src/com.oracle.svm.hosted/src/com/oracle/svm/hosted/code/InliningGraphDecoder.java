@@ -34,7 +34,6 @@ import jdk.graal.compiler.bytecode.BytecodeProvider;
 import jdk.graal.compiler.nodes.EncodedGraph;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.graphbuilderconf.InlineInvokePlugin;
-import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
 import jdk.graal.compiler.phases.util.Providers;
 import jdk.graal.compiler.replacements.PEGraphDecoder;
 
@@ -57,10 +56,5 @@ class InliningGraphDecoder extends PEGraphDecoder {
     @Override
     protected EncodedGraph lookupEncodedGraph(ResolvedJavaMethod method, BytecodeProvider intrinsicBytecodeProvider) {
         return ((HostedMethod) method).compilationInfo.getCompilationGraph().getEncodedGraph();
-    }
-
-    @Override
-    protected LoopScope trySimplifyInvoke(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, MethodCallTargetNode callTarget) {
-        return super.trySimplifyInvoke(methodScope, loopScope, invokeData, callTarget);
     }
 }

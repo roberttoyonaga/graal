@@ -1458,6 +1458,22 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
         }
     }
 
+    protected void undoInlining(PEMethodScope inlineScope, PEMethodScope callerScope, LoopScope callerLoopScope, InvokeData invokeData) {
+        if (invokeData.invokePredecessor.next() != null) {
+            killControlFlowNodes(inlineScope, invokeData.invokePredecessor.next());
+            assert invokeData.invokePredecessor.next() == null : "Successor must have been a fixed node created in the aborted scope, which is deleted now";
+        }
+        invokeData.invokePredecessor.setNext(invokeData.invoke.asFixedNode());
+        if (inlineScope.exceptionPlaceholderNode != null) {
+            assert invokeData.invoke instanceof jdk.graal.compiler.nodes.InvokeWithExceptionNode : invokeData.invoke;
+            assert lookupNode(callerLoopScope, invokeData.exceptionOrderId) == inlineScope.exceptionPlaceholderNode : inlineScope;
+            registerNode(callerLoopScope, invokeData.exceptionOrderId, null, true, true);
+            ValueNode exceptionReplacement = makeStubNode(callerScope, callerLoopScope, invokeData.exceptionOrderId);
+            inlineScope.exceptionPlaceholderNode.replaceAtUsagesAndDelete(exceptionReplacement);
+        }
+        handleNonInlinedInvoke(callerScope, callerLoopScope, invokeData);
+    }
+
     /**
      * Kill fixed nodes of structured control flow. Not as generic, but faster, than
      * {@link GraphUtil#killCFG}.
@@ -1467,7 +1483,7 @@ public abstract class PEGraphDecoder extends SimplifyingGraphDecoder {
      * when decoding of the caller continues. Unused floating nodes are cleaned up by the next run
      * of the CanonicalizerPhase.
      */
-    protected void killControlFlowNodes(PEMethodScope inlineScope, FixedNode start) {
+    private void killControlFlowNodes(PEMethodScope inlineScope, FixedNode start) {
         Deque<Node> workList = null;
         Node cur = start;
         for (int i = 0; i < 1000000; i++) {

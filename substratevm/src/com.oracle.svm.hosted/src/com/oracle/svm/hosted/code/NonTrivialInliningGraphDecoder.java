@@ -35,7 +35,6 @@ import jdk.graal.compiler.nodes.EncodedGraph;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.ValueNode;
 import jdk.graal.compiler.nodes.graphbuilderconf.InlineInvokePlugin;
-import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
 import jdk.graal.compiler.phases.contract.NodeCostUtil;
 import jdk.graal.compiler.phases.util.Providers;
 import jdk.graal.compiler.replacements.PEGraphDecoder;
@@ -79,11 +78,6 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
     }
 
     @Override
-    protected LoopScope trySimplifyInvoke(PEMethodScope methodScope, LoopScope loopScope, InvokeData invokeData, MethodCallTargetNode callTarget) {
-        return super.trySimplifyInvoke(methodScope, loopScope, invokeData, callTarget);
-    }
-
-    @Override
     protected PEMethodScope createMethodScope(StructuredGraph targetGraph, PEMethodScope caller, LoopScope callerLoopScope, EncodedGraph encodedGraph, ResolvedJavaMethod method, InvokeData invokeData,
                     int inliningDepth, ValueNode[] arguments) {
         return new NonTrivialInliningMethodScope(targetGraph, caller, callerLoopScope, encodedGraph, method, invokeData, inliningDepth, arguments);
@@ -103,15 +97,17 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         HostedMethod root = (HostedMethod) scope.method;
         HostedMethod callee = (HostedMethod) inlineInfo.getMethodToInline();
         // If needed, create a CalleeInfo for the current callee
-        if (!root.compilationInfo.callees.containsKey(callee)) {
+        CalleeInfo calleeInfo = root.compilationInfo.callees.get(callee);
+        if (calleeInfo == null) {
             // If this callee is inlined, this CalleeInfo will not survive beyond the current round.
-            root.compilationInfo.callees.put(callee, new CalleeInfo(callee, round));
+            calleeInfo = new CalleeInfo(callee, round);
+            root.compilationInfo.callees.put(callee, calleeInfo);
         }
         /*
          * Stash the graph size in the CalleeInfo. Recursion (due to multiple callsites at different
          * depths) should not be a problem since we only go one level deep per round.
          */
-        root.compilationInfo.callees.get(callee).sizeBeforeInlining = NodeCostUtil.computeGraphSize(graph);
+        calleeInfo.sizeBeforeInlining = NodeCostUtil.computeGraphSize(graph);
         return super.doInline(methodScope, loopScope, invokeData, inlineInfo, arguments);
     }
 
@@ -152,20 +148,7 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         HostedMethod root = (HostedMethod) callerScope.method;
 
         if (!canInline(inlineScope, root, callee)) {
-            // This block is essentially the same as InlineBeforeAnalysisGraphDecoder#finishInlining
-            if (invokeData.invokePredecessor.next() != null) {
-                killControlFlowNodes(inlineScope, invokeData.invokePredecessor.next());
-                assert invokeData.invokePredecessor.next() == null : "Successor must have been a fixed node created in the aborted scope, which is deleted now";
-            }
-            invokeData.invokePredecessor.setNext(invokeData.invoke.asFixedNode());
-            if (inlineScope.exceptionPlaceholderNode != null) {
-                assert invokeData.invoke instanceof jdk.graal.compiler.nodes.InvokeWithExceptionNode : invokeData.invoke;
-                assert lookupNode(callerLoopScope, invokeData.exceptionOrderId) == inlineScope.exceptionPlaceholderNode : inlineScope;
-                registerNode(callerLoopScope, invokeData.exceptionOrderId, null, true, true);
-                ValueNode exceptionReplacement = makeStubNode(callerScope, callerLoopScope, invokeData.exceptionOrderId);
-                inlineScope.exceptionPlaceholderNode.replaceAtUsagesAndDelete(exceptionReplacement);
-            }
-            handleNonInlinedInvoke(callerScope, callerLoopScope, invokeData);
+            undoInlining(inlineScope, callerScope, callerLoopScope, invokeData);
             return;
         }
 

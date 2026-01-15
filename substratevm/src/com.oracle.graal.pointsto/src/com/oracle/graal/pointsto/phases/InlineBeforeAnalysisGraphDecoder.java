@@ -303,21 +303,7 @@ public class InlineBeforeAnalysisGraphDecoder extends PEGraphDecoder {
             if (callerScope.policyScope != null) {
                 callerScope.policyScope.abortCalleeScope(inlineScope.policyScope);
             }
-            if (invokeData.invokePredecessor.next() != null) {
-                killControlFlowNodes(inlineScope, invokeData.invokePredecessor.next());
-                assert invokeData.invokePredecessor.next() == null : "Successor must have been a fixed node created in the aborted scope, which is deleted now";
-            }
-            invokeData.invokePredecessor.setNext(invokeData.invoke.asFixedNode());
-
-            if (inlineScope.exceptionPlaceholderNode != null) {
-                assert invokeData.invoke instanceof InvokeWithExceptionNode : invokeData.invoke;
-                assert lookupNode(callerLoopScope, invokeData.exceptionOrderId) == inlineScope.exceptionPlaceholderNode : inlineScope;
-                registerNode(callerLoopScope, invokeData.exceptionOrderId, null, true, true);
-                ValueNode exceptionReplacement = makeStubNode(callerScope, callerLoopScope, invokeData.exceptionOrderId);
-                inlineScope.exceptionPlaceholderNode.replaceAtUsagesAndDelete(exceptionReplacement);
-            }
-
-            handleNonInlinedInvoke(callerScope, callerLoopScope, invokeData);
+            undoInlining(inlineScope, callerScope, callerLoopScope, invokeData);
             return;
         }
 

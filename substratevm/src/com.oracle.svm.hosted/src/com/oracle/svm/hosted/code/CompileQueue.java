@@ -809,7 +809,8 @@ public class CompileQueue {
      * constraints and focus only on methods with a high benefit. If the non-trivial inlining was
      * responsible for inlining trivial methods as well it would need more flexible cost constraints
      * to handle trivial methods with no computed benefit. Such looser constraints would allow
-     * larger methods with (proportionally more benefit) to more easily be inlined.
+     * larger methods with (proportionally more benefit) to more easily be inlined increasing code
+     * area.
      */
     @SuppressWarnings("try")
     protected void inlineTrivialMethods(DebugContext debug) throws InterruptedException {
@@ -1188,7 +1189,7 @@ public class CompileQueue {
              * If the root level callee is inlined, this 2nd level callee will be moved up to the
              * root level and gain a callsite. Record that possibility.
              */
-            updateCallsiteCountRecords(callerScope, callee);
+            updateCallsiteCountRecords((NonTrivialInliningGraphDecoder.NonTrivialInliningMethodScope) callerScope, callee);
             // This is needed to stop ourselves from diving beyond 1 level of inlining
             return false;
         }
@@ -1265,13 +1266,12 @@ public class CompileQueue {
         return true;
     }
 
-    private static void updateCallsiteCountRecords(PEGraphDecoder.PEMethodScope targetScope, HostedMethod callee) {
-        NonTrivialInliningGraphDecoder.NonTrivialInliningMethodScope s = (NonTrivialInliningGraphDecoder.NonTrivialInliningMethodScope) targetScope;
-        if (s.newCallees.containsKey(callee)) {
-            int newCount = s.newCallees.get(callee) + 1;
-            s.newCallees.put(callee, newCount);
-        } else {
+    private static void updateCallsiteCountRecords(NonTrivialInliningGraphDecoder.NonTrivialInliningMethodScope s, HostedMethod callee) {
+        Integer count = s.newCallees.get(callee);
+        if (count == null) {
             s.newCallees.put(callee, 1);
+        } else {
+            s.newCallees.put(callee, count + 1);
         }
     }
 
