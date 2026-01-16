@@ -306,9 +306,11 @@ public class SubstrateOptions {
                 // SourceLevelDebug persists info about local vars and methods for step-by-step
                 // debugging
                 SubstrateOptions.SourceLevelDebug.update(values, true);
-                // AOTTrivialInline turned off to ensure that trivial methods are not inlined and
+                // Inlining turned off to ensure that trivial methods are not inlined and
                 // can be stepped into
                 SubstrateOptions.AOTTrivialInline.update(values, false);
+                SubstrateOptions.AOTNonTrivialInline.update(values, false);
+                SubstrateOptions.AOTSingleCallsiteInline.update(values, false);
             }
 
             /*
@@ -887,6 +889,14 @@ public class SubstrateOptions {
     @LayerVerifiedOption(kind = Kind.Changed, severity = Severity.Error)//
     @Option(help = "Perform trivial method inlining in the AOT compiled native image")//
     public static final HostedOptionKey<Boolean> AOTTrivialInline = new HostedOptionKey<>(true);
+
+    @LayerVerifiedOption(kind = Kind.Changed, severity = Severity.Error)//
+    @Option(help = "Perform non-trivial method inlining in the AOT compiled native image")//
+    public static final HostedOptionKey<Boolean> AOTNonTrivialInline = new HostedOptionKey<>(true);
+
+    @LayerVerifiedOption(kind = Kind.Changed, severity = Severity.Error)//
+    @Option(help = "Perform single callsite method inlining in the AOT compiled native image")//
+    public static final HostedOptionKey<Boolean> AOTSingleCallsiteInline = new HostedOptionKey<>(true);
 
     @LayerVerifiedOption(kind = Kind.Removed, severity = Severity.Warn, positional = false)//
     @Option(help = "file:doc-files/NeverInlineHelp.txt", type = OptionType.Debug)//

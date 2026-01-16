@@ -200,6 +200,8 @@ public class CompileQueue {
 
     private final boolean printMethodHistogram = NativeImageOptions.PrintMethodHistogram.getValue();
     private final boolean optionAOTTrivialInline = SubstrateOptions.AOTTrivialInline.getValue();
+    private final boolean optionAOTNonTrivialInline = SubstrateOptions.AOTNonTrivialInline.getValue();
+    private final boolean optionAOTSingleCallsiteInline = SubstrateOptions.AOTSingleCallsiteInline.getValue();
     private final boolean allowFoldMethods = NativeImageOptions.AllowFoldMethods.getValue();
 
     private final boolean fallbackCompilation = SubstrateOptions.EnableFallbackCompilation.getValue();
@@ -1175,6 +1177,10 @@ public class CompileQueue {
             return true;
         }
 
+        if (!optionAOTNonTrivialInline) {
+            return false;
+        }
+
         PEGraphDecoder.PEMethodScope callerScope = ((PEGraphDecoder.PENonAppendGraphBuilderContext) b).methodScope;
         boolean evaluatingFirstLevelCallee = callerScope.caller == null;
 
@@ -1210,13 +1216,17 @@ public class CompileQueue {
         return isSizeWithinLimit(caller, callee);
     }
 
-    private static boolean makeNonTrivialInliningPotentialDecision(HostedMethod root, HostedMethod callee) {
+    private boolean makeNonTrivialInliningPotentialDecision(HostedMethod root, HostedMethod callee) {
         if (!isCalleeGraphAvailable(root, callee)) {
             return false;
         }
 
         if (callee.shouldBeInlined()) {
             return true;
+        }
+
+        if (!optionAOTSingleCallsiteInline || !optionAOTNonTrivialInline) {
+            return false;
         }
 
         /*

@@ -44,7 +44,10 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
 /**
  * This decoder is used after trivial inlining. It accounts for expected optimization benefit when
  * making inlining decisions. Callees are "trialed" by first being inlined before a decision is
- * made. This allows expected cost and benefit to be computed. If inlining is denied, then the nodes
+ * made. This allows expected cost and benefit to be computed. Benefit awarded based on successful
+ * local optimizations (canonicalizations). Optimizations that reduce graph size (remove nodes or
+ * conditionals) are weighted more heavily. Benefit is awarded in
+ * {@link jdk.graal.compiler.nodes.SimplifyingGraphDecoder}. If inlining is denied, then the nodes
  * moved into the caller are rolled back similarly to what is done in the
  * {@link com.oracle.graal.pointsto.phases.InlineBeforeAnalysisGraphDecoder}.
  */
