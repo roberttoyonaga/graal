@@ -72,8 +72,8 @@ public class SimplifyingGraphDecoder extends GraphDecoder {
      * below were determined empirically. Floating node removal is weighted the smallest because it
      * doesn't change the overall structure of the graph. These nodes may not even get removed
      * during the canonicalizer phase if they are used again elsewhere. Fixed node removal is
-     * weighted more becuase it changes graph structure. Removal of conditional blocks is weighted
-     * the most becuase it reduces branching.
+     * weighted more because it changes graph structure. Removal of conditional blocks is weighted
+     * the most because it reduces branching.
      */
     private static final int FLOATING_REMOVAL_WEIGHT = 20;
     private static final int FIXED_SUCCESSOR_REMOVAL_WEIGHT = 30;

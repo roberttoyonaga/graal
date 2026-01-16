@@ -940,8 +940,8 @@ public class CompileQueue {
         if (inliningRound == 1) {
             /*
              * Skip roots that are themselves single callsite methods. Otherwise, it's possible that
-             * the both the root and some of its callees are both single callsite methods. In such
-             * cases, the root becomes unreachable and we wasted effort inlining its callees.
+             * the root and some of its callees are both single callsite methods. In such cases, the
+             * root becomes unreachable and we wasted effort inlining its callees.
              */
             if (root.compilationInfo.callsites.get() != 1) {
                 return true;

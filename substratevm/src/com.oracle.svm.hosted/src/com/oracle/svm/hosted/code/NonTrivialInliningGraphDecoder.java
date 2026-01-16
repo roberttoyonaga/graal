@@ -44,12 +44,28 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
 /**
  * This decoder is used after trivial inlining. It accounts for expected optimization benefit when
  * making inlining decisions. Callees are "trialed" by first being inlined before a decision is
- * made. This allows expected cost and benefit to be computed. Benefit awarded based on successful
- * local optimizations (canonicalizations). Optimizations that reduce graph size (remove nodes or
- * conditionals) are weighted more heavily. Benefit is awarded in
+ * made. This allows expected cost and benefit to be computed. Benefit is awarded based on
+ * successful local optimizations (canonicalization). Benefit is awarded in
  * {@link jdk.graal.compiler.nodes.SimplifyingGraphDecoder}. If inlining is denied, then the nodes
- * moved into the caller are rolled back similarly to what is done in the
+ * moved into the caller are rolled back, similar to what is done in the
  * {@link com.oracle.graal.pointsto.phases.InlineBeforeAnalysisGraphDecoder}.
+ *
+ * <p>
+ * This inliner implementation is a variation of the one described in the paper "An
+ * Optimization-Driven Incremental Inline Substitution Algorithm for Just-in-Time Compilers" (DOI:
+ * <a href="https://doi.org/10.1109/CGO.2019.8661171">10.1109/CGO.2019.8661171</a>). This
+ * implementation has some differences:
+ * <ol>
+ * <li>The benefit of some optimizations that reduce graph size (remove nodes or conditionals) are
+ * weighted more heavily.</li>
+ * <li>T1 and T2 constant factors in the threshold function were chosen to be different.</li>
+ * <li>Method call frequency cannot be used.</li>
+ * <li>Callsite count is used in each callee's benefit calculation.</li>
+ * <li>Each callee is evaluated independently instead of sharing a budget with other callees
+ * belonging to the same root method. This is achieved by excluding the root size term from the
+ * threshold function. The reason for this is to avoid needing to use prioritization to order the
+ * evaluation of callees.</li>
+ * </ol>
  */
 class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
     class NonTrivialInliningMethodScope extends PEMethodScope {
@@ -62,6 +78,21 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
         }
 
     }
+
+    /*
+     * These threshold function constants are different from those chosen in
+     * "An Optimization-Driven Incremental Inline Substitution Algorithm for Just-in-Time Compilers"
+     * (t1=0.005, t2= 120). These values were chosen empirically. Both t1 and t2 are more strict
+     * than in the aforementioned paper for a few reasons: 1. Some optimizations are given an extra
+     * heavy benefit weighting. This results in a higher benefit|cost. 2. Only the callee size, not
+     * the root size is accounted for in the threshold function. This is so that each callee may be
+     * evaluated independently without a shared budget, which would require callee prioritization to
+     * correctly order inlining trials. This results in a lower threshold. 3. Each callee is
+     * evaluated independently. There is a per-callee budget, not a shared budget. All of these
+     * reasons result in needing a threshold that is harder to overcome.
+     */
+    private static final double T1 = 5;
+    private static final double T2 = 1;
 
     boolean inlinedDuringDecoding;
     int round;
@@ -128,9 +159,8 @@ class NonTrivialInliningGraphDecoder extends PEGraphDecoder {
 
         double offset = 1.0;
         double bc = (offset + inlineScope.benefit) * Math.pow(root.compilationInfo.callsites.get(), 2) / calleeCost;
-        double t1 = 5;
-        double t2 = 1;
-        double threshold = t1 * Math.pow(2, (calleeCost / (16 * t2)));
+
+        double threshold = T1 * Math.pow(2, (calleeCost / (16 * T2)));
         if (bc >= threshold) {
             return true;
         }
