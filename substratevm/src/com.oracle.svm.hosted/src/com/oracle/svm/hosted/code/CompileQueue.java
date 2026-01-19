@@ -1225,7 +1225,7 @@ public class CompileQueue {
             return true;
         }
 
-        if (!optionAOTSingleCallsiteInline || !optionAOTNonTrivialInline) {
+        if (!optionAOTNonTrivialInline) {
             return false;
         }
 
@@ -1246,6 +1246,15 @@ public class CompileQueue {
     }
 
     private boolean makeSingleCallsiteInlineDecision(HostedMethod caller, HostedMethod callee) {
+        if (callee.shouldBeInlined()) {
+            return true;
+        }
+
+        // Depend on Non-Trivial stage to count callsites.
+        if (!optionAOTSingleCallsiteInline || !optionAOTNonTrivialInline) {
+            return false;
+        }
+
         if (callee.compilationInfo.callsites.get() != 1) {
             return false;
         }
