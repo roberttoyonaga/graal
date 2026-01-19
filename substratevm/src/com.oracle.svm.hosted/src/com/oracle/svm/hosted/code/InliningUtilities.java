@@ -25,7 +25,9 @@
 package com.oracle.svm.hosted.code;
 
 import jdk.graal.compiler.graph.Node;
+import jdk.graal.compiler.nodes.FrameState;
 import jdk.graal.compiler.nodes.FullInfopointNode;
+import jdk.graal.compiler.nodes.ParameterNode;
 import jdk.graal.compiler.nodes.StartNode;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.extended.ValueAnchorNode;
@@ -36,33 +38,50 @@ import jdk.graal.compiler.replacements.nodes.MethodHandleWithExceptionNode;
 import com.oracle.svm.core.SubstrateOptions;
 
 public class InliningUtilities {
-
     public static boolean isTrivialMethod(StructuredGraph graph) {
+        boolean useNodeCount = SubstrateOptions.MaxNodesInTrivialLeafMethod.hasBeenSet() || SubstrateOptions.MaxNodesInTrivialMethod.hasBeenSet();
         int numInvokes = 0;
-        int size = 0;
+        int graphCost = 0; // Derived from either node count or size
+
         for (Node n : graph.getNodes()) {
-            if (n instanceof StartNode || n instanceof FullInfopointNode || n instanceof ValueProxy || n instanceof ValueAnchorNode) {
+            if (shouldSkipNode(n, useNodeCount)) {
                 continue;
             }
-            if (n instanceof MethodCallTargetNode || n instanceof MethodHandleWithExceptionNode) {
+
+            boolean isInvoke = n instanceof MethodCallTargetNode || n instanceof MethodHandleWithExceptionNode;
+            if (isInvoke) {
                 numInvokes++;
             }
-            size += n.estimatedNodeSize().value;
 
-            if (!shouldBeTrivial(numInvokes, size, graph)) {
+            graphCost += computeNodeCost(n, isInvoke, useNodeCount);
+            if (!isCostUnderThreshold(numInvokes, graphCost, graph, useNodeCount)) {
                 return false;
             }
         }
-
         return true;
     }
 
-    private static boolean shouldBeTrivial(int numInvokes, int size, StructuredGraph graph) {
+    private static boolean shouldSkipNode(Node n, boolean useNodeCount) {
+        if (n instanceof StartNode || n instanceof FullInfopointNode || n instanceof ValueProxy || n instanceof ValueAnchorNode) {
+            return true;
+        }
+        return useNodeCount && (n instanceof ParameterNode || n instanceof FrameState);
+    }
+
+    private static int computeNodeCost(Node n, boolean isInvoke, boolean useNodeCount) {
+        if (useNodeCount) {
+            return isInvoke ? 0 : 1;
+        } else {
+            return n.estimatedNodeSize().value;
+        }
+    }
+
+    private static boolean isCostUnderThreshold(int numInvokes, int value, StructuredGraph graph, boolean useNodeCount) {
         if (numInvokes == 0) {
             // This is a leaf method => we can be generous.
-            return size <= SubstrateOptions.MaxTrivialLeafMethodSize.getValue(graph.getOptions());
+            return value <= (useNodeCount ? SubstrateOptions.MaxNodesInTrivialLeafMethod.getValue(graph.getOptions()) : SubstrateOptions.MaxTrivialLeafMethodSize.getValue(graph.getOptions()));
         } else if (numInvokes <= SubstrateOptions.MaxInvokesInTrivialMethod.getValue(graph.getOptions())) {
-            return size <= SubstrateOptions.MaxTrivialMethodSize.getValue(graph.getOptions());
+            return value <= (useNodeCount ? SubstrateOptions.MaxNodesInTrivialMethod.getValue(graph.getOptions()) : SubstrateOptions.MaxTrivialMethodSize.getValue(graph.getOptions()));
         } else {
             return false;
         }

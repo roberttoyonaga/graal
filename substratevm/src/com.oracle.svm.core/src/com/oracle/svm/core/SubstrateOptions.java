@@ -905,14 +905,20 @@ public class SubstrateOptions {
     @Option(help = "file:doc-files/NeverInlineHelp.txt")//
     public static final HostedOptionKey<AccumulatingLocatableMultiOptionValue.Strings> NeverInlineTrivial = new HostedOptionKey<>(AccumulatingLocatableMultiOptionValue.Strings.build());
 
+    @Option(help = "Maximum number of nodes in a method so that it is considered trivial.", deprecated = true, deprecationMessage = "Use -XX:MaxTrivialMethodSize instead")//
+    public static final HostedOptionKey<Integer> MaxNodesInTrivialMethod = new HostedOptionKey<>(20);
+
+    @Option(help = "Maximum number of nodes in a method so that it is considered trivial, if it does not have any invokes.", deprecated = true, deprecationMessage = "Use -XX:MaxTrivialLeafMethodSize instead")//
+    public static final HostedOptionKey<Integer> MaxNodesInTrivialLeafMethod = new HostedOptionKey<>(40);
+
     @Option(help = "Maximum size of a method so that it is considered trivial.")//
     public static final HostedOptionKey<Integer> MaxTrivialMethodSize = new HostedOptionKey<>(55);
 
-    @Option(help = "Maximum number of invokes in a method so that it is considered trivial (for testing only).")//
-    public static final HostedOptionKey<Integer> MaxInvokesInTrivialMethod = new HostedOptionKey<>(1);
-
     @Option(help = "Maximum size of a method so that it is considered trivial, if it does not have any invokes.")//
     public static final HostedOptionKey<Integer> MaxTrivialLeafMethodSize = new HostedOptionKey<>(128);
+
+    @Option(help = "Maximum number of invokes in a method so that it is considered trivial (for testing only).")//
+    public static final HostedOptionKey<Integer> MaxInvokesInTrivialMethod = new HostedOptionKey<>(1);
 
     @Option(help = "The maximum number of nodes in a graph allowed after trivial inlining.")//
     public static final HostedOptionKey<Integer> MaxNodesAfterTrivialInlining = new HostedOptionKey<>(Integer.MAX_VALUE);
