@@ -25,6 +25,7 @@
 package com.oracle.svm.hosted.code;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import jdk.graal.compiler.core.common.CompilationIdentifier;
@@ -45,6 +46,9 @@ import com.oracle.svm.hosted.code.CompileQueue.ParseHooks;
 import com.oracle.svm.hosted.meta.HostedMethod;
 
 public class CompilationInfo {
+    public int sizeLastRound;
+
+    public AtomicInteger callsites = new AtomicInteger();
 
     protected final HostedMethod method;
 
