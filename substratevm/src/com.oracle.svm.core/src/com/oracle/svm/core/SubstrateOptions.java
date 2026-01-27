@@ -912,6 +912,9 @@ public class SubstrateOptions {
     @Option(help = "The maximum number of nodes in a graph allowed after trivial inlining.")//
     public static final HostedOptionKey<Integer> MaxNodesAfterTrivialInlining = new HostedOptionKey<>(Integer.MAX_VALUE);
 
+    @Option(help = "The maximum size of a graph allowed after trivial inlining.")//
+    public static final HostedOptionKey<Integer> MaxSizeAfterTrivialInlining = new HostedOptionKey<>(Integer.MAX_VALUE);
+
     @LayerVerifiedOption(kind = Kind.Changed, severity = Severity.Error)//
     @Option(help = "Saves stack base pointer on the stack on method entry.")//
     public static final HostedOptionKey<Boolean> PreserveFramePointer = new HostedOptionKey<>(false);

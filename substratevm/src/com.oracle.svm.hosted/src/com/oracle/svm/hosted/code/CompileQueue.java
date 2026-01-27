@@ -127,6 +127,7 @@ import jdk.graal.compiler.nodes.graphbuilderconf.InlineInvokePlugin;
 import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
 import jdk.graal.compiler.nodes.spi.CoreProviders;
 import jdk.graal.compiler.options.OptionValues;
+import jdk.graal.compiler.phases.contract.NodeCostUtil;
 import jdk.graal.compiler.phases.OptimisticOptimizations;
 import jdk.graal.compiler.phases.Phase;
 import jdk.graal.compiler.phases.PhaseSuite;
@@ -871,7 +872,7 @@ public class CompileQueue {
             if (inliningPlugin.inlinedDuringDecoding) {
                 CanonicalizerPhase.create().apply(graph, providers);
 
-                if (!method.compilationInfo.isTrivialInliningDisabled() && graph.getNodeCount() > SubstrateOptions.MaxNodesAfterTrivialInlining.getValue()) {
+                if (!method.compilationInfo.isTrivialInliningDisabled() && doesGraphExceedLimit(graph)) {
                     /*
                      * The method is too larger after inlining. There is no good way of just
                      * inlining some but not all trivial callees, because inlining is done during
@@ -897,6 +898,11 @@ public class CompileQueue {
         } catch (Throwable ex) {
             throw debug.handle(ex);
         }
+    }
+
+    private static boolean doesGraphExceedLimit(StructuredGraph graph) {
+        int size = NodeCostUtil.computeGraphSize(graph);
+        return graph.getNodeCount() > SubstrateOptions.MaxNodesAfterTrivialInlining.getValue() || size > SubstrateOptions.MaxSizeAfterTrivialInlining.getValue();
     }
 
     private boolean makeInlineDecision(HostedMethod method, HostedMethod callee) {
