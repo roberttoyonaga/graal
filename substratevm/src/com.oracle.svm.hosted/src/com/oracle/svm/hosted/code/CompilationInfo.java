@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2013, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2026, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2026, 2026, IBM Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,9 +47,9 @@ import com.oracle.svm.hosted.code.CompileQueue.ParseHooks;
 import com.oracle.svm.hosted.meta.HostedMethod;
 
 public class CompilationInfo {
-    public int sizeLastRound;
+    int sizeLastRound;
 
-    public AtomicInteger callsites = new AtomicInteger();
+    AtomicInteger callsites = new AtomicInteger();
 
     protected final HostedMethod method;
 
