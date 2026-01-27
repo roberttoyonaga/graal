@@ -1068,10 +1068,6 @@ public class CompileQueue {
             return false;
         }
 
-        if (callee.shouldBeInlined()) {
-            return true;
-        }
-
         if (callee.compilationInfo.callsites.get() != 1) {
             return false;
         }
