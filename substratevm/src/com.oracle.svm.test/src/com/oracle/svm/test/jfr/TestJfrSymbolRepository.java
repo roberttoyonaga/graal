@@ -52,8 +52,14 @@ public class TestJfrSymbolRepository extends JfrRecordingTest {
         long id1 = getSymbolId(repo, str1);
         long id2 = getSymbolId(repo, str2);
         long id1copy = getSymbolId(repo, str1copy);
+        long empty1 = getSymbolId(repo, "");
+        long empty2 = getSymbolId(repo, "");
+        long nullId = getSymbolId(repo, null);
         assertEquals(id1, id1copy);
         assertNotEquals(id1, id2);
+        assertNotEquals(0, empty1);
+        assertEquals(empty1, empty2);
+        assertEquals(0, nullId);
     }
 
     @Uninterruptible(reason = "Needed for JfrSymbolRepository.getSymbolId().")

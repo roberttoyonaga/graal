@@ -83,7 +83,7 @@ public class JfrSymbolRepository implements JfrRepository {
 
     @Uninterruptible(reason = "Locking without transition and result is only valid until epoch changes.", callerMustBe = true)
     public long getSymbolId(String imageHeapString, boolean previousEpoch, boolean replaceDotWithSlash) {
-        if (imageHeapString == null || imageHeapString.isEmpty()) {
+        if (imageHeapString == null) {
             return 0;
         }
 
