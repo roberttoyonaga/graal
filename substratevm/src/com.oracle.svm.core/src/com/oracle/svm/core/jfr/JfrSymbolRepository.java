@@ -88,12 +88,12 @@ public class JfrSymbolRepository implements JfrRepository {
         }
 
         assert Heap.getHeap().isInImageHeap(imageHeapString);
-        int length = UninterruptibleUtils.String.modifiedUTF8Length(imageHeapString, false);
+        int length = UninterruptibleUtils.String.utf8Length(imageHeapString, false, replaceDotWithSlash ? dotWithSlash : null);
         Pointer buffer = NullableNativeMemory.malloc(length, NmtCategory.JFR);
         if (buffer.isNull()) {
             return 0;
         }
-        UninterruptibleUtils.String.toModifiedUTF8(imageHeapString, imageHeapString.length(), buffer, buffer.add(length), false, replaceDotWithSlash ? dotWithSlash : null);
+        UninterruptibleUtils.String.toUTF8(imageHeapString, imageHeapString.length(), buffer, buffer.add(length), false, replaceDotWithSlash ? dotWithSlash : null);
 
         return getSymbolId(buffer, Word.unsigned(length), previousEpoch);
     }

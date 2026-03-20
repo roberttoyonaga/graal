@@ -534,7 +534,7 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
         } else {
             getFileSupport().writeByte(fd, StringEncoding.UTF8_BYTE_ARRAY.getValue());
 
-            int length = UninterruptibleUtils.String.modifiedUTF8Length(str, false);
+            int length = UninterruptibleUtils.String.utf8Length(str, false);
             writeCompressedInt(length);
             int bufferSize = 64;
             Pointer buffer = StackValue.get(bufferSize);
@@ -546,13 +546,26 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
                 Pointer pos = buffer;
                 while (charsWritten < str.length()) {
                     char ch = UninterruptibleUtils.String.charAt(str, charsWritten);
-                    int nextCharSize = UninterruptibleUtils.String.modifiedUTF8Length(ch);
+                    int nextCharSize = UninterruptibleUtils.String.utf8Length(ch);
+                    int charsConsumed = 1;
+                    if (Character.isHighSurrogate(ch) && charsWritten + 1 < str.length()) {
+                        char low = UninterruptibleUtils.String.charAt(str, charsWritten + 1);
+                        if (Character.isLowSurrogate(low)) {
+                            nextCharSize = UninterruptibleUtils.String.utf8Length(Character.toCodePoint(ch, low));
+                            charsConsumed = 2;
+                        }
+                    }
                     if (pos.add(nextCharSize).aboveThan(bufferEnd)) {
                         // buffer is too full to add the next char
                         break;
                     }
-                    pos = UninterruptibleUtils.String.writeModifiedUTF8(pos, ch);
-                    charsWritten++;
+                    if (charsConsumed == 2) {
+                        char low = UninterruptibleUtils.String.charAt(str, charsWritten + 1);
+                        pos = UninterruptibleUtils.String.writeUTF8(pos, Character.toCodePoint(ch, low));
+                    } else {
+                        pos = UninterruptibleUtils.String.writeUTF8(pos, ch);
+                    }
+                    charsWritten += charsConsumed;
                 }
                 // Write the contents of the buffer to disk
                 UnsignedWord bytesToDisk = pos.subtract(buffer);

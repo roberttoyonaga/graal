@@ -564,7 +564,7 @@ public class JfrTypeRepository implements JfrRepository {
             dot = 0;
         }
 
-        int utf8Length = UninterruptibleUtils.String.modifiedUTF8Length(str, false, dotWithSlash);
+        int utf8Length = UninterruptibleUtils.String.utf8Length(str, false, dotWithSlash);
         Pointer buffer = NullableNativeMemory.malloc(utf8Length, NmtCategory.JFR);
         Pointer bufferEnd = buffer.add(utf8Length);
 
@@ -581,7 +581,7 @@ public class JfrTypeRepository implements JfrRepository {
          * Since we're serializing now, we must do replacements here, instead of the symbol
          * repository.
          */
-        Pointer packageNameEnd = UninterruptibleUtils.String.toModifiedUTF8(str, dot, buffer, bufferEnd, false, dotWithSlash);
+        Pointer packageNameEnd = UninterruptibleUtils.String.toUTF8(str, dot, buffer, bufferEnd, false, dotWithSlash);
         packageInfoRaw.setModifiedUTF8Name(buffer);
 
         UnsignedWord packageNameLength = packageNameEnd.subtract(buffer); // end - start

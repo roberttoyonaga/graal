@@ -562,6 +562,36 @@ public class UninterruptibleUtils {
         }
 
         /**
+         * Gets the number of bytes for a char in UTF-8 format.
+         */
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static int utf8Length(char c) {
+            if (c <= 0x007F) {
+                return 1;
+            } else if (c <= 0x07FF) {
+                return 2;
+            } else {
+                return 3;
+            }
+        }
+
+        /**
+         * Gets the number of bytes for a code point in UTF-8 format.
+         */
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static int utf8Length(int codePoint) {
+            if (codePoint <= 0x007F) {
+                return 1;
+            } else if (codePoint <= 0x07FF) {
+                return 2;
+            } else if (codePoint <= 0xFFFF) {
+                return 3;
+            } else {
+                return 4;
+            }
+        }
+
+        /**
          * Write a char in modified UTF8 format into the buffer.
          */
         @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
@@ -579,6 +609,42 @@ public class UninterruptibleUtils {
                 pos.writeByte(1, (byte) (0x80 | ((c >> 6) & 0x3F)));
                 pos.writeByte(2, (byte) (0x80 | (c & 0x3F)));
                 pos = pos.add(3);
+            }
+            return pos;
+        }
+
+        /**
+         * Write a char in UTF-8 format into the buffer.
+         */
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static Pointer writeUTF8(Pointer buffer, char c) {
+            return writeUTF8(buffer, (int) c);
+        }
+
+        /**
+         * Write a code point in UTF-8 format into the buffer.
+         */
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static Pointer writeUTF8(Pointer buffer, int codePoint) {
+            Pointer pos = buffer;
+            if (codePoint <= 0x007F) {
+                pos.writeByte(0, (byte) codePoint);
+                pos = pos.add(1);
+            } else if (codePoint <= 0x07FF) {
+                pos.writeByte(0, (byte) (0xC0 | (codePoint >> 6)));
+                pos.writeByte(1, (byte) (0x80 | (codePoint & 0x3F)));
+                pos = pos.add(2);
+            } else if (codePoint <= 0xFFFF) {
+                pos.writeByte(0, (byte) (0xE0 | (codePoint >> 12)));
+                pos.writeByte(1, (byte) (0x80 | ((codePoint >> 6) & 0x3F)));
+                pos.writeByte(2, (byte) (0x80 | (codePoint & 0x3F)));
+                pos = pos.add(3);
+            } else {
+                pos.writeByte(0, (byte) (0xF0 | (codePoint >> 18)));
+                pos.writeByte(1, (byte) (0x80 | ((codePoint >> 12) & 0x3F)));
+                pos.writeByte(2, (byte) (0x80 | ((codePoint >> 6) & 0x3F)));
+                pos.writeByte(3, (byte) (0x80 | (codePoint & 0x3F)));
+                pos = pos.add(4);
             }
             return pos;
         }
@@ -602,6 +668,39 @@ public class UninterruptibleUtils {
                     ch = replacer.replace(ch);
                 }
                 result += modifiedUTF8Length(ch);
+            }
+
+            return result + (addNullTerminator ? 1 : 0);
+        }
+
+        /**
+         * Gets the length of {@code string} when encoded using UTF-8.
+         */
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static int utf8Length(java.lang.String string, boolean addNullTerminator) {
+            return utf8Length(string, addNullTerminator, null);
+        }
+
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static int utf8Length(java.lang.String string, boolean addNullTerminator, CharReplacer replacer) {
+            int result = 0;
+            for (int index = 0; index < string.length(); index++) {
+                char ch = charAt(string, index);
+                if (replacer != null) {
+                    ch = replacer.replace(ch);
+                }
+                if (java.lang.Character.isHighSurrogate(ch) && index + 1 < string.length()) {
+                    char low = charAt(string, index + 1);
+                    if (replacer != null) {
+                        low = replacer.replace(low);
+                    }
+                    if (java.lang.Character.isLowSurrogate(low)) {
+                        result += utf8Length(java.lang.Character.toCodePoint(ch, low));
+                        index++;
+                        continue;
+                    }
+                }
+                result += utf8Length(ch);
             }
 
             return result + (addNullTerminator ? 1 : 0);
@@ -633,6 +732,51 @@ public class UninterruptibleUtils {
                     ch = replacer.replace(ch);
                 }
                 pos = writeModifiedUTF8(pos, ch);
+            }
+
+            if (addNullTerminator) {
+                pos.writeByte(0, (byte) 0);
+                pos = pos.add(1);
+            }
+            VMError.guarantee(pos.belowOrEqual(bufferEnd), "Must not write out of bounds.");
+            return pos;
+        }
+
+        /**
+         * Writes the encoded {@code string} into the given {@code buffer} using UTF-8.
+         *
+         * @return pointer on new position in buffer.
+         */
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static Pointer toUTF8(java.lang.String string, Pointer buffer, Pointer bufferEnd, boolean addNullTerminator) {
+            return toUTF8(string, buffer, bufferEnd, addNullTerminator, null);
+        }
+
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static Pointer toUTF8(java.lang.String string, Pointer buffer, Pointer bufferEnd, boolean addNullTerminator, CharReplacer replacer) {
+            return toUTF8(string, string.length(), buffer, bufferEnd, addNullTerminator, replacer);
+        }
+
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static Pointer toUTF8(java.lang.String string, int stringLength, Pointer buffer, Pointer bufferEnd, boolean addNullTerminator, CharReplacer replacer) {
+            Pointer pos = buffer;
+            for (int index = 0; index < stringLength; index++) {
+                char ch = charAt(string, index);
+                if (replacer != null) {
+                    ch = replacer.replace(ch);
+                }
+                if (java.lang.Character.isHighSurrogate(ch) && index + 1 < stringLength) {
+                    char low = charAt(string, index + 1);
+                    if (replacer != null) {
+                        low = replacer.replace(low);
+                    }
+                    if (java.lang.Character.isLowSurrogate(low)) {
+                        pos = writeUTF8(pos, java.lang.Character.toCodePoint(ch, low));
+                        index++;
+                        continue;
+                    }
+                }
+                pos = writeUTF8(pos, ch);
             }
 
             if (addNullTerminator) {
