@@ -48,6 +48,7 @@ import com.oracle.svm.core.hub.LayoutEncoding;
 import com.oracle.svm.guest.staging.Uninterruptible;
 import com.oracle.svm.core.jfr.traceid.JfrTraceId;
 import com.oracle.svm.core.jfr.traceid.JfrTraceIdEpoch;
+import com.oracle.svm.core.locks.VMMutex;
 import com.oracle.svm.core.nmt.NmtCategory;
 import com.oracle.svm.core.memory.NullableNativeMemory;
 
@@ -82,6 +83,7 @@ public class JfrTypeRepository implements JfrRepository {
      */
     private final JfrClassInfoTable epochTypeData0;
     private final JfrClassInfoTable epochTypeData1;
+    private final VMMutex classIdMutex;
 
     private final UninterruptibleUtils.CharReplacer dotWithSlash;
     private long currentPackageId = 0;
@@ -97,6 +99,7 @@ public class JfrTypeRepository implements JfrRepository {
 
         typeInfo = new TypeInfo();
         dotWithSlash = new ReplaceDotWithSlash();
+        classIdMutex = new VMMutex("jfrTypeRepositoryClassId");
 
         epochTypeData0 = new JfrClassInfoTable();
         epochTypeData1 = new JfrClassInfoTable();
@@ -122,7 +125,14 @@ public class JfrTypeRepository implements JfrRepository {
         classInfoRaw.setHash(getHash(clazz.getName()));
         classInfoRaw.setName(clazz.getName());
         classInfoRaw.setInstance(clazz);
-        classInfoTable.putIfAbsent(classInfoRaw);
+        classIdMutex.lockNoTransition();
+        try {
+            if (classInfoTable.getOrPut(classInfoRaw).isNull()) {
+                return 0L;
+            }
+        } finally {
+            classIdMutex.unlock();
+        }
 
         return JfrTraceId.load(clazz);
     }
