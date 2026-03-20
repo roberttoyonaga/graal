@@ -147,7 +147,7 @@ public class JfrSymbolRepository implements JfrRepository {
             JfrNativeEventWriter.putLong(data, newEntry.getId());
             JfrNativeEventWriter.putString(data, newEntry.getModifiedUTF8(), (int) newEntry.getLength().rawValue());
             if (!JfrNativeEventWriter.commit(data)) {
-                NullableNativeMemory.free(symbol.getModifiedUTF8());
+                epochData.table.remove(symbol);
                 return 0L;
             }
 
