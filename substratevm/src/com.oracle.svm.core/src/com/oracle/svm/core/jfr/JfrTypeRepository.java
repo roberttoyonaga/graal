@@ -391,6 +391,7 @@ public class JfrTypeRepository implements JfrRepository {
          * and does not need to be serialized.
          */
         if (packageInfoRaw.getNameLength().equal(0)) {
+            NullableNativeMemory.free(packageInfoRaw.getModifiedUTF8Name());
             return false;
         }
         packageInfoRaw.setHash(getHash(packageInfoRaw));
