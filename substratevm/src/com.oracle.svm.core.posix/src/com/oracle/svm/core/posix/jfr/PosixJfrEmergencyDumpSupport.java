@@ -191,6 +191,7 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
                 writeEmergencyDumpFile(sortedChunkFilenames);
                 closeEmergencyDumpFile();
             } finally {
+                freeChunkFilenames(sortedChunkFilenames);
                 GrowableWordArrayAccess.freeData(sortedChunkFilenames);
                 sortedChunkFilenames = Word.nullPointer();
             }
@@ -249,11 +250,18 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
                 // Filter files
                 CCharPointer fn = entry.d_name();
                 if (filter(fn)) {
-                    // Append filtered files to list
-                    if (!GrowableWordArrayAccess.add(gwa, (Word) (Pointer) fn, NmtCategory.JFR)) {
-                        SubstrateJVM.getLogging().logJfrSystemError("Unable to add chunk filename to list during jfr emergency dump");
+                    CCharPointer fnCopy = LibC.strdup(fn);
+                    if (fnCopy.isNull()) {
+                        SubstrateJVM.getLogging().logJfrSystemError("Unable to copy chunk filename during jfr emergency dump");
+                        continue;
                     }
-                    count++;
+                    // Append filtered files to list
+                    if (!GrowableWordArrayAccess.add(gwa, (Word) (Pointer) fnCopy, NmtCategory.JFR)) {
+                        LibC.free(fnCopy);
+                        SubstrateJVM.getLogging().logJfrSystemError("Unable to add chunk filename to list during jfr emergency dump");
+                    } else {
+                        count++;
+                    }
                 }
             }
             closeDirectory();
@@ -324,6 +332,15 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
             }
         }
         NullableNativeMemory.free(copyBlock);
+    }
+
+    private void freeChunkFilenames(GrowableWordArray chunkFilenames) {
+        for (int i = 0; i < chunkFilenames.getSize(); i++) {
+            CCharPointer fn = (CCharPointer) ((Pointer) GrowableWordArrayAccess.get(chunkFilenames, i));
+            if (fn.isNonNull()) {
+                LibC.free(fn);
+            }
+        }
     }
 
     private boolean openDirectory() {
