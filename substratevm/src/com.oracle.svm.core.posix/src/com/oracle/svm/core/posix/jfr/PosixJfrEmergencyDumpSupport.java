@@ -303,30 +303,32 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
 
         for (int i = 0; i < sortedChunkFilenames.getSize(); i++) {
             CCharPointer fn = (CCharPointer) ((Pointer) GrowableWordArrayAccess.get(sortedChunkFilenames, i));
-            RawFileDescriptor chunkFd = getFileSupport().open(fullyQualified(fn), FileAccessMode.READ_WRITE);
+            RawFileDescriptor chunkFd = getFileSupport().open(fullyQualified(fn), FileAccessMode.READ);
             if (getFileSupport().isValid(chunkFd)) {
 
                 // Read it's size
                 long chunkFileSize = getFileSupport().size(chunkFd);
                 long bytesRead = 0;
-                long bytesWritten = 0;
+                if (!getFileSupport().seek(chunkFd, 0)) {
+                    SubstrateJVM.getLogging().logJfrInfo("Unable to recover JFR data, seek failed.");
+                    getFileSupport().close(chunkFd);
+                    continue;
+                }
                 while (bytesRead < chunkFileSize) {
-                    // Start at beginning
-                    getFileSupport().seek(chunkFd, 0);
                     // Read from chunk file to copy block
                     long readResult = getFileSupport().read(chunkFd, copyBlock, Word.unsigned(blockSize));
-                    if (readResult < 0) { // -1 if read failed
-                        SubstrateJVM.getLogging().logJfrInfo("Unable to recover JFR data, read failed.");
+                    if (readResult <= 0) {
+                        if (readResult < 0) {
+                            SubstrateJVM.getLogging().logJfrInfo("Unable to recover JFR data, read failed.");
+                        }
                         break;
                     }
                     bytesRead += readResult;
-                    assert bytesRead - bytesWritten <= blockSize;
                     // Write from copy block to dump file
-                    if (!getFileSupport().write(emergencyFd, copyBlock, Word.unsigned(bytesRead - bytesWritten))) {
+                    if (!getFileSupport().write(emergencyFd, copyBlock, Word.unsigned(readResult))) {
                         SubstrateJVM.getLogging().logJfrInfo("Unable to recover JFR data, write failed.");
                         break;
                     }
-                    bytesWritten = bytesRead;
                 }
                 getFileSupport().close(chunkFd);
             }
