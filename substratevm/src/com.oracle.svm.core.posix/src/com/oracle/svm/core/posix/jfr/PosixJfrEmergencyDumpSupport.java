@@ -200,10 +200,10 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
             try {
                 iterateRepository(sortedChunkFilenames);
                 writeEmergencyDumpFile(sortedChunkFilenames);
-                closeEmergencyDumpFile();
             } finally {
                 freeChunkFilenames(sortedChunkFilenames);
                 GrowableWordArrayAccess.freeData(sortedChunkFilenames);
+                closeEmergencyDumpFile();
                 sortedChunkFilenames = Word.nullPointer();
             }
         }
@@ -325,7 +325,11 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
 
         for (int i = 0; i < sortedChunkFilenames.getSize(); i++) {
             CCharPointer fn = (CCharPointer) ((Pointer) GrowableWordArrayAccess.get(sortedChunkFilenames, i));
-            RawFileDescriptor chunkFd = getFileSupport().open(fullyQualified(fn), FileAccessMode.READ);
+            CCharPointer chunkPath = fullyQualified(fn);
+            if (chunkPath.isNull()) {
+                continue;
+            }
+            RawFileDescriptor chunkFd = getFileSupport().open(chunkPath, FileAccessMode.READ);
             if (getFileSupport().isValid(chunkFd)) {
 
                 // Read it's size
@@ -434,7 +438,7 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
         }
 
         // Verify it can be opened and receive a valid file descriptor
-        RawFileDescriptor chunkFd = getFileSupport().open(chunkPath, FileAccessMode.READ_WRITE);
+        RawFileDescriptor chunkFd = getFileSupport().open(chunkPath, FileAccessMode.READ);
         if (!getFileSupport().isValid(chunkFd)) {
             return false;
         }
