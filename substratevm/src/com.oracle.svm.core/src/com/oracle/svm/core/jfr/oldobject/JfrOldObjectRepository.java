@@ -132,10 +132,10 @@ public final class JfrOldObjectRepository implements JfrRepository {
             char ch = UninterruptibleUtils.String.charAt(text, index);
             int byteLength = UninterruptibleUtils.String.utf8Length(ch);
             int charsConsumed = 1;
-            if (Character.isHighSurrogate(ch) && index + 1 < text.length()) {
+            if (UninterruptibleUtils.String.isHighSurrogate(ch) && index + 1 < text.length()) {
                 char low = UninterruptibleUtils.String.charAt(text, index + 1);
-                if (Character.isLowSurrogate(low)) {
-                    byteLength = UninterruptibleUtils.String.utf8Length(Character.toCodePoint(ch, low));
+                if (UninterruptibleUtils.String.isLowSurrogate(low)) {
+                    byteLength = UninterruptibleUtils.String.utf8Length(UninterruptibleUtils.String.toCodePoint(ch, low));
                     charsConsumed = 2;
                 }
             }
@@ -148,7 +148,7 @@ public final class JfrOldObjectRepository implements JfrRepository {
 
             if (charsConsumed == 2) {
                 char low = UninterruptibleUtils.String.charAt(text, index + 1);
-                pos = UninterruptibleUtils.String.writeUTF8(pos, Character.toCodePoint(ch, low));
+                pos = UninterruptibleUtils.String.writeUTF8(pos, UninterruptibleUtils.String.toCodePoint(ch, low));
                 index++;
             } else {
                 pos = UninterruptibleUtils.String.writeUTF8(pos, ch);

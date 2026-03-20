@@ -591,6 +591,21 @@ public class UninterruptibleUtils {
             }
         }
 
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static boolean isHighSurrogate(char ch) {
+            return ch >= 0xD800 && ch <= 0xDBFF;
+        }
+
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static boolean isLowSurrogate(char ch) {
+            return ch >= 0xDC00 && ch <= 0xDFFF;
+        }
+
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        public static int toCodePoint(char high, char low) {
+            return ((high - 0xD800) << 10) + (low - 0xDC00) + 0x10000;
+        }
+
         /**
          * Write a char in modified UTF8 format into the buffer.
          */
@@ -689,13 +704,13 @@ public class UninterruptibleUtils {
                 if (replacer != null) {
                     ch = replacer.replace(ch);
                 }
-                if (java.lang.Character.isHighSurrogate(ch) && index + 1 < string.length()) {
+                if (isHighSurrogate(ch) && index + 1 < string.length()) {
                     char low = charAt(string, index + 1);
                     if (replacer != null) {
                         low = replacer.replace(low);
                     }
-                    if (java.lang.Character.isLowSurrogate(low)) {
-                        result += utf8Length(java.lang.Character.toCodePoint(ch, low));
+                    if (isLowSurrogate(low)) {
+                        result += utf8Length(toCodePoint(ch, low));
                         index++;
                         continue;
                     }
@@ -765,13 +780,13 @@ public class UninterruptibleUtils {
                 if (replacer != null) {
                     ch = replacer.replace(ch);
                 }
-                if (java.lang.Character.isHighSurrogate(ch) && index + 1 < stringLength) {
+                if (isHighSurrogate(ch) && index + 1 < stringLength) {
                     char low = charAt(string, index + 1);
                     if (replacer != null) {
                         low = replacer.replace(low);
                     }
-                    if (java.lang.Character.isLowSurrogate(low)) {
-                        pos = writeUTF8(pos, java.lang.Character.toCodePoint(ch, low));
+                    if (isLowSurrogate(low)) {
+                        pos = writeUTF8(pos, toCodePoint(ch, low));
                         index++;
                         continue;
                     }

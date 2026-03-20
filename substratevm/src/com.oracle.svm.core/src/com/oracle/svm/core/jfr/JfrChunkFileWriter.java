@@ -548,10 +548,10 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
                     char ch = UninterruptibleUtils.String.charAt(str, charsWritten);
                     int nextCharSize = UninterruptibleUtils.String.utf8Length(ch);
                     int charsConsumed = 1;
-                    if (Character.isHighSurrogate(ch) && charsWritten + 1 < str.length()) {
+                    if (UninterruptibleUtils.String.isHighSurrogate(ch) && charsWritten + 1 < str.length()) {
                         char low = UninterruptibleUtils.String.charAt(str, charsWritten + 1);
-                        if (Character.isLowSurrogate(low)) {
-                            nextCharSize = UninterruptibleUtils.String.utf8Length(Character.toCodePoint(ch, low));
+                        if (UninterruptibleUtils.String.isLowSurrogate(low)) {
+                            nextCharSize = UninterruptibleUtils.String.utf8Length(UninterruptibleUtils.String.toCodePoint(ch, low));
                             charsConsumed = 2;
                         }
                     }
@@ -561,7 +561,7 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
                     }
                     if (charsConsumed == 2) {
                         char low = UninterruptibleUtils.String.charAt(str, charsWritten + 1);
-                        pos = UninterruptibleUtils.String.writeUTF8(pos, Character.toCodePoint(ch, low));
+                        pos = UninterruptibleUtils.String.writeUTF8(pos, UninterruptibleUtils.String.toCodePoint(ch, low));
                     } else {
                         pos = UninterruptibleUtils.String.writeUTF8(pos, ch);
                     }
