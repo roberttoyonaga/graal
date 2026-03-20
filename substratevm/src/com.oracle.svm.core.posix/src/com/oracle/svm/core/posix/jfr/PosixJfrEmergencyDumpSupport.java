@@ -109,7 +109,11 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
     @Override
     public void setRepositoryLocation(String dirText) {
         repositoryLocationBytes = dirText.getBytes(StandardCharsets.UTF_8);
-        openDirectoryWarning = "Unable to open repository " + dirText;
+        if (isRepositoryLocationTooLong(repositoryLocationBytes)) {
+            openDirectoryWarning = "Unable to open repository " + dirText + ". Repository path is too long.";
+        } else {
+            openDirectoryWarning = "Unable to open repository " + dirText;
+        }
     }
 
     /** This method is called during JFR initialization. */
@@ -123,7 +127,11 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
         }
 
         if (dumpPathBytes != null) {
-            openFileWarning = "Unable to create an emergency dump file at the location set by dumppath=" + new String(dumpPathBytes, StandardCharsets.UTF_8);
+            if (isDumpPathTooLong(dumpPathBytes)) {
+                openFileWarning = "Unable to create an emergency dump file at the location set by dumppath=" + new String(dumpPathBytes, StandardCharsets.UTF_8) + ". Dump path is too long.";
+            } else {
+                openFileWarning = "Unable to create an emergency dump file at the location set by dumppath=" + new String(dumpPathBytes, StandardCharsets.UTF_8);
+            }
         } else {
             openFileWarning = "Unable to create an emergency dump file. Dump path could not be set.";
         }
@@ -167,6 +175,9 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
      */
     @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-26+3/src/hotspot/share/jfr/recorder/repository/jfrEmergencyDump.cpp#L418-L431")
     private RawFileDescriptor createEmergencyChunkPath() {
+        if (isRepositoryLocationTooLong(repositoryLocationBytes)) {
+            return Word.nullPointer();
+        }
         clearPathBuffer();
         int idx = 0;
         idx = writeToPathBuffer(repositoryLocationBytes, idx);
@@ -205,14 +216,22 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
             return true;
         }
         // O_CREAT | O_RDWR and S_IREAD | S_IWRITE permissions
-        emergencyFd = getFileSupport().create(createEmergencyDumpPath(), FileCreationMode.CREATE, FileAccessMode.READ_WRITE);
+        emergencyFd = createEmergencyDumpFile();
         if (!getFileSupport().isValid(emergencyFd)) {
             SubstrateJVM.getLogging().logJfrWarning(openFileWarning);
             // Fallback. Try to create it in the current directory.
             dumpPathBytes = null;
-            emergencyFd = getFileSupport().create(createEmergencyDumpPath(), FileCreationMode.CREATE, FileAccessMode.READ_WRITE);
+            emergencyFd = createEmergencyDumpFile();
         }
         return getFileSupport().isValid(emergencyFd);
+    }
+
+    private RawFileDescriptor createEmergencyDumpFile() {
+        CCharPointer path = createEmergencyDumpPath();
+        if (path.isNull()) {
+            return Word.nullPointer();
+        }
+        return getFileSupport().create(path, FileCreationMode.CREATE, FileAccessMode.READ_WRITE);
     }
 
     @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-26+2/src/hotspot/share/jfr/recorder/repository/jfrEmergencyDump.cpp#L110-L129")
@@ -222,6 +241,9 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
 
         if (dumpPathBytes == null) {
             dumpPathBytes = cwdBytes;
+        }
+        if (isDumpPathTooLong(dumpPathBytes)) {
+            return Word.nullPointer();
         }
         if (dumpPathBytes != null) {
             idx = writeToPathBuffer(dumpPathBytes, idx);
@@ -346,7 +368,12 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
     }
 
     private boolean openDirectory() {
-        int fd = Fcntl.NoTransitions.restartableOpen(getRepositoryLocation(), O_RDONLY() | O_NOFOLLOW(), 0);
+        CCharPointer repositoryLocation = getRepositoryLocation();
+        if (repositoryLocation.isNull()) {
+            SubstrateJVM.getLogging().logJfrSystemError(openDirectoryWarning);
+            return false;
+        }
+        int fd = Fcntl.NoTransitions.restartableOpen(repositoryLocation, O_RDONLY() | O_NOFOLLOW(), 0);
         if (fd == -1) {
             return false;
         }
@@ -361,6 +388,9 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
     }
 
     private CCharPointer getRepositoryLocation() {
+        if (repositoryLocationBytes == null || isRepositoryLocationTooLong(repositoryLocationBytes)) {
+            return Word.nullPointer();
+        }
         clearPathBuffer();
         writeToPathBuffer(repositoryLocationBytes, 0);
         return getPathBuffer();
@@ -398,8 +428,13 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
             }
         }
 
+        CCharPointer chunkPath = fullyQualified(fn);
+        if (chunkPath.isNull()) {
+            return false;
+        }
+
         // Verify it can be opened and receive a valid file descriptor
-        RawFileDescriptor chunkFd = getFileSupport().open(fullyQualified(fn), FileAccessMode.READ_WRITE);
+        RawFileDescriptor chunkFd = getFileSupport().open(chunkPath, FileAccessMode.READ_WRITE);
         if (!getFileSupport().isValid(chunkFd)) {
             return false;
         }
@@ -420,6 +455,9 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
     @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-26+2/src/hotspot/share/jfr/recorder/repository/jfrEmergencyDump.cpp#L263-L273")
     private CCharPointer fullyQualified(CCharPointer fn) {
         long fnLength = SubstrateUtil.strlen(fn).rawValue();
+        if (repositoryLocationBytes == null || repositoryLocationBytes.length + 1L + fnLength >= JVM_MAXPATHLEN) {
+            return Word.nullPointer();
+        }
         int idx = 0;
 
         clearPathBuffer();
@@ -433,7 +471,7 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
         for (int i = 0; i < fnLength; i++) {
             getPathBuffer().write(idx++, fn.read(i));
         }
-        getPathBuffer().write(idx++, (byte) 0);
+        getPathBuffer().write(idx, (byte) 0);
         return getPathBuffer();
     }
 
@@ -451,6 +489,18 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
             getPathBuffer().write(idx++, bytes[i]);
         }
         return idx;
+    }
+
+    private static boolean isRepositoryLocationTooLong(byte[] repositoryLocation) {
+        return repositoryLocation != null && repositoryLocation.length + 1L + EMERGENCY_CHUNK_BYTES.length + CHUNKFILE_EXTENSION_BYTES.length >= JVM_MAXPATHLEN;
+    }
+
+    private boolean isDumpPathTooLong(byte[] dumpPath) {
+        return dumpPath != null && dumpPath.length + 1L + DUMP_FILE_PREFIX.length + getPidBytesLength() + CHUNKFILE_EXTENSION_BYTES.length >= JVM_MAXPATHLEN;
+    }
+
+    private int getPidBytesLength() {
+        return pidBytes != null ? pidBytes.length : Long.toString(ProcessHandle.current().pid()).getBytes(StandardCharsets.UTF_8).length;
     }
 
     static RawFileOperationSupport getFileSupport() {
