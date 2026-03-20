@@ -146,12 +146,16 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
     @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-26+3/src/hotspot/share/jfr/recorder/repository/jfrEmergencyDump.cpp#L433-L445")
     public RawFileDescriptor chunkPath() {
         if (repositoryLocationBytes == null) {
-            openEmergencyDumpFile();
+            if (!openEmergencyDumpFile()) {
+                return Word.nullPointer();
+            }
             /*
              * We can directly use the emergency dump file name as the new chunk since there are no
              * other chunk files.
              */
-            return emergencyFd;
+            RawFileDescriptor fd = emergencyFd;
+            emergencyFd = Word.nullPointer();
+            return fd;
         }
         return createEmergencyChunkPath();
     }
@@ -176,6 +180,9 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
     @Override
     @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-26+2/src/hotspot/share/jfr/recorder/repository/jfrEmergencyDump.cpp#L409-L416")
     public void onVmError() {
+        if (repositoryLocationBytes == null) {
+            return;
+        }
         if (openEmergencyDumpFile()) {
             GrowableWordArray sortedChunkFilenames = StackValue.get(GrowableWordArray.class);
             GrowableWordArrayAccess.initialize(sortedChunkFilenames);
