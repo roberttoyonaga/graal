@@ -235,12 +235,13 @@ public class JfrTypeRepository implements JfrRepository {
         assert classInfoRaw.getHash() != 0;
         Class<?> clazz = classInfoRaw.getInstance();
         PackageInfoRaw packageInfoRaw = StackValue.get(PackageInfoRaw.class);
+        packageInfoRaw.setHasModule(clazz.getModule() != null);
+        packageInfoRaw.setModule(clazz.getModule());
         setPackageNameAndLength(clazz, packageInfoRaw);
         packageInfoRaw.setHash(getHash(packageInfoRaw));
 
-        boolean hasClassLoader = clazz.getClassLoader() != null;
         writer.writeCompressedLong(classInfoRaw.getId());
-        writer.writeCompressedLong(getClassLoaderId(hasClassLoader ? clazz.getClassLoader().getName() : null, hasClassLoader));
+        writer.writeCompressedLong(getClassLoaderId(clazz.getClassLoader()));
         writer.writeCompressedLong(getSymbolId(writer, clazz.getName(), flushpoint, true));
         writer.writeCompressedLong(getPackageId(packageInfoRaw));
         writer.writeCompressedLong(clazz.getModifiers());
@@ -301,7 +302,7 @@ public class JfrTypeRepository implements JfrRepository {
         assert packageInfoRaw.getHash() != 0;
         writer.writeCompressedLong(packageInfoRaw.getId());  // id
         writer.writeCompressedLong(getSymbolId(writer, packageInfoRaw.getModifiedUTF8Name(), packageInfoRaw.getNameLength(), flushpoint));
-        writer.writeCompressedLong(getModuleId(packageInfoRaw.getModuleName(), packageInfoRaw.getHasModule()));
+        writer.writeCompressedLong(getModuleId(packageInfoRaw.getModule()));
         writer.writeBoolean(false); // exported
     }
 
@@ -329,7 +330,7 @@ public class JfrTypeRepository implements JfrRepository {
         writer.writeCompressedLong(getSymbolId(writer, moduleInfoRaw.getName(), flushpoint, false));
         writer.writeCompressedLong(0); // Version, e.g. "11.0.10-internal"
         writer.writeCompressedLong(0); // Location, e.g. "jrt:/java.base"
-        writer.writeCompressedLong(getClassLoaderId(moduleInfoRaw.getClassLoaderName(), moduleInfoRaw.getHasClassLoader()));
+        writer.writeCompressedLong(getClassLoaderId(moduleInfoRaw.getClassLoader()));
     }
 
     private int writeClassLoaders(JfrChunkWriter writer, boolean flushpoint) {
@@ -379,11 +380,12 @@ public class JfrTypeRepository implements JfrRepository {
 
     /** We cannot directly call getPackage() or getPackageName() since that may allocate. */
     private boolean addPackage(Class<?> clazz) {
-        boolean hasModule = clazz.getModule() != null;
-        String moduleName = hasModule ? clazz.getModule().getName() : null;
+        Module module = clazz.getModule();
 
         PackageInfoRaw packageInfoRaw = StackValue.get(PackageInfoRaw.class);
         packageInfoRaw.setName(null); // No allocation free way to get the name String.
+        packageInfoRaw.setHasModule(module != null);
+        packageInfoRaw.setModule(module);
         setPackageNameAndLength(clazz, packageInfoRaw);
 
         /*
@@ -396,15 +398,13 @@ public class JfrTypeRepository implements JfrRepository {
         }
         packageInfoRaw.setHash(getHash(packageInfoRaw));
         if (isPackageVisited(packageInfoRaw)) {
-            assert moduleName == (flushedPackages.contains(packageInfoRaw) ? ((PackageInfoRaw) flushedPackages.get(packageInfoRaw)).getModuleName()
-                            : ((PackageInfoRaw) typeInfo.packages.get(packageInfoRaw)).getModuleName());
+            assert module == (flushedPackages.contains(packageInfoRaw) ? ((PackageInfoRaw) flushedPackages.get(packageInfoRaw)).getModule()
+                            : ((PackageInfoRaw) typeInfo.packages.get(packageInfoRaw)).getModule());
             NullableNativeMemory.free(packageInfoRaw.getModifiedUTF8Name());
             return false;
         }
 
         packageInfoRaw.setId(++currentPackageId);
-        packageInfoRaw.setHasModule(hasModule);
-        packageInfoRaw.setModuleName(moduleName);
         typeInfo.packages.putNew(packageInfoRaw);
         // Do not free the buffer. A pointer to it is shallow copied into the hash map.
         assert typeInfo.packages.contains(packageInfoRaw);
@@ -429,14 +429,15 @@ public class JfrTypeRepository implements JfrRepository {
 
     private boolean addModule(Module module) {
         ModuleInfoRaw moduleInfoRaw = StackValue.get(ModuleInfoRaw.class);
+        moduleInfoRaw.setModule(module);
         moduleInfoRaw.setName(module.getName());
-        moduleInfoRaw.setHash(getHash(module.getName()));
+        moduleInfoRaw.setHash(getIdentityHash(module));
         if (isModuleVisited(moduleInfoRaw)) {
             return false;
         }
         moduleInfoRaw.setId(++currentModuleId);
         moduleInfoRaw.setHasClassLoader(module.getClassLoader() != null);
-        moduleInfoRaw.setClassLoaderName(moduleInfoRaw.getHasClassLoader() ? module.getClassLoader().getName() : null);
+        moduleInfoRaw.setClassLoader(module.getClassLoader());
         typeInfo.modules.putNew(moduleInfoRaw);
         return true;
     }
@@ -445,11 +446,11 @@ public class JfrTypeRepository implements JfrRepository {
         return typeInfo.modules.contains(moduleInfoRaw) || flushedModules.contains(moduleInfoRaw);
     }
 
-    private long getModuleId(String moduleName, boolean hasModule) {
-        if (hasModule) {
+    private long getModuleId(Module module) {
+        if (module != null) {
             ModuleInfoRaw moduleInfoRaw = StackValue.get(ModuleInfoRaw.class);
-            moduleInfoRaw.setName(moduleName);
-            moduleInfoRaw.setHash(getHash(moduleName));
+            moduleInfoRaw.setModule(module);
+            moduleInfoRaw.setHash(getIdentityHash(module));
             if (flushedModules.contains(moduleInfoRaw)) {
                 return ((ModuleInfoRaw) flushedModules.get(moduleInfoRaw)).getId();
             }
@@ -461,13 +462,14 @@ public class JfrTypeRepository implements JfrRepository {
 
     private boolean addClassLoader(ClassLoader classLoader) {
         ClassLoaderInfoRaw classLoaderInfoRaw = StackValue.get(ClassLoaderInfoRaw.class);
+        classLoaderInfoRaw.setClassLoader(classLoader);
         if (classLoader == null) {
             classLoaderInfoRaw.setName(BOOTSTRAP_NAME);
         } else {
             classLoaderInfoRaw.setName(classLoader.getName());
         }
 
-        classLoaderInfoRaw.setHash(getHash(classLoaderInfoRaw.getName()));
+        classLoaderInfoRaw.setHash(getIdentityHash(classLoader));
         if (isClassLoaderVisited(classLoaderInfoRaw)) {
             return false;
         }
@@ -489,18 +491,17 @@ public class JfrTypeRepository implements JfrRepository {
         return flushedClassLoaders.contains(classLoaderInfoRaw) || typeInfo.classLoaders.contains(classLoaderInfoRaw);
     }
 
-    private long getClassLoaderId(String classLoaderName, boolean hasClassLoader) {
-        if (hasClassLoader) {
-            ClassLoaderInfoRaw classLoaderInfoRaw = StackValue.get(ClassLoaderInfoRaw.class);
-            classLoaderInfoRaw.setName(classLoaderName);
-            classLoaderInfoRaw.setHash(getHash(classLoaderName));
-            if (flushedClassLoaders.contains(classLoaderInfoRaw)) {
-                return ((ClassLoaderInfoRaw) flushedClassLoaders.get(classLoaderInfoRaw)).getId();
-            }
-            return ((ClassLoaderInfoRaw) typeInfo.classLoaders.get(classLoaderInfoRaw)).getId();
+    private long getClassLoaderId(ClassLoader classLoader) {
+        if (classLoader == null) {
+            return 0;
         }
-        // Bootstrap classloader
-        return 0;
+        ClassLoaderInfoRaw classLoaderInfoRaw = StackValue.get(ClassLoaderInfoRaw.class);
+        classLoaderInfoRaw.setClassLoader(classLoader);
+        classLoaderInfoRaw.setHash(getIdentityHash(classLoader));
+        if (flushedClassLoaders.contains(classLoaderInfoRaw)) {
+            return ((ClassLoaderInfoRaw) flushedClassLoaders.get(classLoaderInfoRaw)).getId();
+        }
+        return ((ClassLoaderInfoRaw) typeInfo.classLoaders.get(classLoaderInfoRaw)).getId();
     }
 
     private void clearEpochData() {
@@ -612,7 +613,11 @@ public class JfrTypeRepository implements JfrRepository {
         for (int i = 0; packageInfoRaw.getNameLength().aboveThan(i); i++) {
             sum += (packageInfoRaw.getModifiedUTF8Name()).readByte(i);
         }
-        return UninterruptibleUtils.Long.hashCode(sum);
+        return 31 * UninterruptibleUtils.Long.hashCode(sum) + getIdentityHash(packageInfoRaw.getModule());
+    }
+
+    private static int getIdentityHash(Object object) {
+        return object != null ? System.identityHashCode(object) : 0;
     }
 
     @RawStructure
@@ -647,11 +652,11 @@ public class JfrTypeRepository implements JfrRepository {
     private interface PackageInfoRaw extends JfrTypeInfo {
         @PinnedObjectField
         @RawField
-        void setModuleName(String value);
+        void setModule(Module value);
 
         @PinnedObjectField
         @RawField
-        String getModuleName();
+        Module getModule();
 
         @RawField
         void setHasModule(boolean value);
@@ -676,11 +681,19 @@ public class JfrTypeRepository implements JfrRepository {
     private interface ModuleInfoRaw extends JfrTypeInfo {
         @PinnedObjectField
         @RawField
-        void setClassLoaderName(String value);
+        void setModule(Module value);
 
         @PinnedObjectField
         @RawField
-        String getClassLoaderName();
+        Module getModule();
+
+        @PinnedObjectField
+        @RawField
+        void setClassLoader(ClassLoader value);
+
+        @PinnedObjectField
+        @RawField
+        ClassLoader getClassLoader();
 
         // Needed because CL name may be empty or null, even if CL is non-null
         @RawField
@@ -692,6 +705,14 @@ public class JfrTypeRepository implements JfrRepository {
 
     @RawStructure
     private interface ClassLoaderInfoRaw extends JfrTypeInfo {
+        @PinnedObjectField
+        @RawField
+        void setClassLoader(ClassLoader value);
+
+        @PinnedObjectField
+        @RawField
+        ClassLoader getClassLoader();
+
         @RawField
         void setClassTraceId(long value);
 
@@ -775,7 +796,9 @@ public class JfrTypeRepository implements JfrRepository {
             // IDs cannot be compared since they are only assigned after checking the table.
             PackageInfoRaw entry1 = (PackageInfoRaw) v0;
             PackageInfoRaw entry2 = (PackageInfoRaw) v1;
-            return entry1.getNameLength().equal(entry2.getNameLength()) && LibC.memcmp(entry1.getModifiedUTF8Name(), entry2.getModifiedUTF8Name(), entry1.getNameLength()) == 0;
+            return entry1.getModule() == entry2.getModule() &&
+                            entry1.getNameLength().equal(entry2.getNameLength()) &&
+                            LibC.memcmp(entry1.getModifiedUTF8Name(), entry2.getModifiedUTF8Name(), entry1.getNameLength()) == 0;
         }
 
         @Override
@@ -836,6 +859,14 @@ public class JfrTypeRepository implements JfrRepository {
         protected UninterruptibleEntry copyToHeap(UninterruptibleEntry visitedOnStack) {
             return copyToHeap(visitedOnStack, SizeOf.unsigned(ModuleInfoRaw.class));
         }
+
+        @Override
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        protected boolean isEqual(UninterruptibleEntry v0, UninterruptibleEntry v1) {
+            ModuleInfoRaw a = (ModuleInfoRaw) v0;
+            ModuleInfoRaw b = (ModuleInfoRaw) v1;
+            return a.getModule() == b.getModule();
+        }
     }
 
     private final class JfrClassLoaderInfoTable extends JfrTypeInfoTable {
@@ -854,6 +885,14 @@ public class JfrTypeRepository implements JfrRepository {
         @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
         protected UninterruptibleEntry copyToHeap(UninterruptibleEntry visitedOnStack) {
             return copyToHeap(visitedOnStack, SizeOf.unsigned(ClassLoaderInfoRaw.class));
+        }
+
+        @Override
+        @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+        protected boolean isEqual(UninterruptibleEntry v0, UninterruptibleEntry v1) {
+            ClassLoaderInfoRaw a = (ClassLoaderInfoRaw) v0;
+            ClassLoaderInfoRaw b = (ClassLoaderInfoRaw) v1;
+            return a.getClassLoader() == b.getClassLoader();
         }
     }
 
