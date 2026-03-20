@@ -415,7 +415,11 @@ public class JfrTypeRepository implements JfrRepository {
         packageInfoRaw.setId(++currentPackageId);
         packageInfoRaw.setHasModule(hasModule);
         packageInfoRaw.setModuleName(moduleName);
-        typeInfo.packages.putNew(packageInfoRaw);
+        if (((PackageInfoRaw) typeInfo.packages.putNew(packageInfoRaw)).isNull()) {
+            currentPackageId--;
+            NullableNativeMemory.free(packageInfoRaw.getModifiedUTF8Name());
+            return false;
+        }
         // Do not free the buffer. A pointer to it is shallow copied into the hash map.
         assert typeInfo.packages.contains(packageInfoRaw);
         return true;
@@ -427,10 +431,13 @@ public class JfrTypeRepository implements JfrRepository {
 
     private long getPackageId(PackageInfoRaw packageInfoRaw) {
         if (packageInfoRaw.getModifiedUTF8Name().isNonNull() && packageInfoRaw.getNameLength().aboveOrEqual(1)) {
+            PackageInfoRaw entry;
             if (flushedPackages.contains(packageInfoRaw)) {
-                return ((PackageInfoRaw) flushedPackages.get(packageInfoRaw)).getId();
+                entry = (PackageInfoRaw) flushedPackages.get(packageInfoRaw);
+            } else {
+                entry = (PackageInfoRaw) typeInfo.packages.get(packageInfoRaw);
             }
-            return ((PackageInfoRaw) typeInfo.packages.get(packageInfoRaw)).getId();
+            return entry.isNonNull() ? entry.getId() : 0;
         } else {
             // Empty package has reserved ID 0
             return 0;
@@ -447,7 +454,10 @@ public class JfrTypeRepository implements JfrRepository {
         moduleInfoRaw.setId(++currentModuleId);
         moduleInfoRaw.setHasClassLoader(module.getClassLoader() != null);
         moduleInfoRaw.setClassLoaderName(moduleInfoRaw.getHasClassLoader() ? module.getClassLoader().getName() : null);
-        typeInfo.modules.putNew(moduleInfoRaw);
+        if (((ModuleInfoRaw) typeInfo.modules.putNew(moduleInfoRaw)).isNull()) {
+            currentModuleId--;
+            return false;
+        }
         return true;
     }
 
@@ -460,10 +470,13 @@ public class JfrTypeRepository implements JfrRepository {
             ModuleInfoRaw moduleInfoRaw = StackValue.get(ModuleInfoRaw.class);
             moduleInfoRaw.setName(moduleName);
             moduleInfoRaw.setHash(getHash(moduleName));
+            ModuleInfoRaw entry;
             if (flushedModules.contains(moduleInfoRaw)) {
-                return ((ModuleInfoRaw) flushedModules.get(moduleInfoRaw)).getId();
+                entry = (ModuleInfoRaw) flushedModules.get(moduleInfoRaw);
+            } else {
+                entry = (ModuleInfoRaw) typeInfo.modules.get(moduleInfoRaw);
             }
-            return ((ModuleInfoRaw) typeInfo.modules.get(moduleInfoRaw)).getId();
+            return entry.isNonNull() ? entry.getId() : 0;
         } else {
             return 0;
         }
@@ -491,7 +504,12 @@ public class JfrTypeRepository implements JfrRepository {
             classLoaderInfoRaw.setClassTraceId(JfrTraceId.getTraceId(classLoader.getClass()));
         }
 
-        typeInfo.classLoaders.putNew(classLoaderInfoRaw);
+        if (((ClassLoaderInfoRaw) typeInfo.classLoaders.putNew(classLoaderInfoRaw)).isNull()) {
+            if (classLoader != null) {
+                currentClassLoaderId--;
+            }
+            return false;
+        }
         return true;
     }
 
@@ -504,10 +522,13 @@ public class JfrTypeRepository implements JfrRepository {
             ClassLoaderInfoRaw classLoaderInfoRaw = StackValue.get(ClassLoaderInfoRaw.class);
             classLoaderInfoRaw.setName(classLoaderName);
             classLoaderInfoRaw.setHash(getHash(classLoaderName));
+            ClassLoaderInfoRaw entry;
             if (flushedClassLoaders.contains(classLoaderInfoRaw)) {
-                return ((ClassLoaderInfoRaw) flushedClassLoaders.get(classLoaderInfoRaw)).getId();
+                entry = (ClassLoaderInfoRaw) flushedClassLoaders.get(classLoaderInfoRaw);
+            } else {
+                entry = (ClassLoaderInfoRaw) typeInfo.classLoaders.get(classLoaderInfoRaw);
             }
-            return ((ClassLoaderInfoRaw) typeInfo.classLoaders.get(classLoaderInfoRaw)).getId();
+            return entry.isNonNull() ? entry.getId() : 0;
         }
         // Bootstrap classloader
         return 0;
