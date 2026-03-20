@@ -796,14 +796,22 @@ public class JfrTypeRepository implements JfrRepository {
                     if (!contains(sourceInfo)) {
                         // Put if not already there.
                         PackageInfoRaw destinationInfo = (PackageInfoRaw) putNew(sourceInfo);
+                        if (destinationInfo.isNull()) {
+                            sourceInfo = sourceInfo.getNext();
+                            continue;
+                        }
+                        destinationInfo.setModifiedUTF8Name(Word.nullPointer());
                         // allocate a new buffer.
                         Pointer newUtf8Name = NullableNativeMemory.malloc(sourceInfo.getNameLength(), NmtCategory.JFR);
+                        if (newUtf8Name.isNull()) {
+                            remove(destinationInfo);
+                            sourceInfo = sourceInfo.getNext();
+                            continue;
+                        }
                         // set the buffer ptr.
                         destinationInfo.setModifiedUTF8Name(newUtf8Name);
                         // Copy source buffer contents over to new buffer.
-                        if (newUtf8Name.isNonNull()) {
-                            UnmanagedMemoryUtil.copy(sourceInfo.getModifiedUTF8Name(), newUtf8Name, sourceInfo.getNameLength());
-                        }
+                        UnmanagedMemoryUtil.copy(sourceInfo.getModifiedUTF8Name(), newUtf8Name, sourceInfo.getNameLength());
                     }
                     sourceInfo = sourceInfo.getNext();
                 }
