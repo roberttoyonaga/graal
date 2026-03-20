@@ -46,21 +46,25 @@ public class TestGrowableWordArrayQuickSort {
         RandomGenerator randomGenerator = RandomGenerator.getDefault();
         GrowableWordArray gwa = StackValue.get(GrowableWordArray.class);
         GrowableWordArrayAccess.initialize(gwa);
-        long nextLong = 0;
-        for (int i = 0; i < 1000; i++) {
-            // Occasionally insert duplicates
-            if (i % 50 != 0) {
-                nextLong = randomGenerator.nextLong();
+        try {
+            long nextLong = 0;
+            for (int i = 0; i < 1000; i++) {
+                // Occasionally insert duplicates
+                if (i % 50 != 0) {
+                    nextLong = randomGenerator.nextLong();
+                }
+                GrowableWordArrayAccess.add(gwa, WordFactory.signed(nextLong), NmtCategory.JFR);
             }
-            GrowableWordArrayAccess.add(gwa, WordFactory.signed(nextLong), NmtCategory.JFR);
-        }
 
-        GrowableWordArrayAccess.qsort(gwa, 0, gwa.getSize() - 1, TestGrowableWordArrayQuickSort::compare);
-        long last = GrowableWordArrayAccess.get(gwa, 0).rawValue();
-        for (int i = 0; i < gwa.getSize(); i++) {
-            long current = GrowableWordArrayAccess.get(gwa, i).rawValue();
-            assertTrue(last <= current);
-            last = current;
+            GrowableWordArrayAccess.qsort(gwa, 0, gwa.getSize() - 1, TestGrowableWordArrayQuickSort::compare);
+            long last = GrowableWordArrayAccess.get(gwa, 0).rawValue();
+            for (int i = 0; i < gwa.getSize(); i++) {
+                long current = GrowableWordArrayAccess.get(gwa, i).rawValue();
+                assertTrue(last <= current);
+                last = current;
+            }
+        } finally {
+            GrowableWordArrayAccess.freeData(gwa);
         }
     }
 
