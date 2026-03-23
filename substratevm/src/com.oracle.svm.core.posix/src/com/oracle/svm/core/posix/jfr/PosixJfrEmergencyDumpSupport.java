@@ -404,10 +404,10 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
 
         // Verify file size
         long chunkFileSize = getFileSupport().size(chunkFd);
+        getFileSupport().close(chunkFd);
         if (chunkFileSize < CHUNK_FILE_HEADER_SIZE) {
             return false;
         }
-        getFileSupport().close(chunkFd);
         return true;
     }
 
