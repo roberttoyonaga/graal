@@ -26,6 +26,7 @@ package com.oracle.svm.core.jfr;
 
 import static com.oracle.svm.core.jfr.JfrThreadLocal.getJavaBufferList;
 import static com.oracle.svm.core.jfr.JfrThreadLocal.getNativeBufferList;
+import static com.oracle.svm.core.heap.RestrictHeapAccess.Access.NO_ALLOCATION;
 import static com.oracle.svm.guest.staging.Uninterruptible.CALLED_FROM_UNINTERRUPTIBLE_CODE;
 
 import org.graalvm.nativeimage.c.struct.SizeOf;
@@ -37,6 +38,7 @@ import org.graalvm.word.Pointer;
 import org.graalvm.word.UnsignedWord;
 import org.graalvm.word.impl.Word;
 
+import com.oracle.svm.core.heap.RestrictHeapAccess;
 import com.oracle.svm.core.heap.VMOperationInfos;
 import com.oracle.svm.core.jdk.UninterruptibleUtils;
 import com.oracle.svm.core.jfr.oldobject.JfrOldObjectRepository;
@@ -49,6 +51,7 @@ import com.oracle.svm.core.os.RawFileOperationSupport.FileAccessMode;
 import com.oracle.svm.core.os.RawFileOperationSupport.FileCreationMode;
 import com.oracle.svm.core.os.RawFileOperationSupport.RawFileDescriptor;
 import com.oracle.svm.core.sampler.SamplerBuffersAccess;
+import com.oracle.svm.core.thread.JavaVMOperation;
 import com.oracle.svm.core.thread.NativeVMOperation;
 import com.oracle.svm.core.thread.NativeVMOperationData;
 import com.oracle.svm.core.thread.RecurringCallbackSupport;
@@ -82,6 +85,7 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
     private static final short FLAG_CHUNK_FINAL = 0b10;
 
     private final JfrChangeEpochOperation epochChangeOp;
+    private PreparePreviousEpochSnapshotOperation prepareSnapshotOp;
     private final VMMutex lock;
     private final JfrGlobalMemory globalMemory;
     private final JfrMetadata metadata;
@@ -123,6 +127,7 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
     @Override
     public void initialize(long maxChunkSize) {
         this.notificationThreshold = maxChunkSize;
+        prepareSnapshotOp = new PreparePreviousEpochSnapshotOperation();
     }
 
     @Override
@@ -237,6 +242,8 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
         NativeVMOperationData data = StackValue.get(size);
         UnmanagedMemoryUtil.fill((Pointer) data, Word.unsigned(size), (byte) 0);
         epochChangeOp.enqueue(data);
+        assert prepareSnapshotOp != null;
+        prepareSnapshotOp.enqueue();
 
         /*
          * After changing the epoch, all subsequently triggered JFR events will be recorded into the
@@ -733,6 +740,18 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
         private static void processSamplerBuffers0() {
             SamplerBuffersAccess.processActiveBuffers();
             SamplerBuffersAccess.processFullBuffers(false);
+        }
+    }
+
+    private static final class PreparePreviousEpochSnapshotOperation extends JavaVMOperation {
+        PreparePreviousEpochSnapshotOperation() {
+            super(VMOperationInfos.get(PreparePreviousEpochSnapshotOperation.class, "JFR prepare previous epoch snapshot", SystemEffect.SAFEPOINT));
+        }
+
+        @Override
+        @RestrictHeapAccess(access = NO_ALLOCATION, reason = "Used on OOME for emergency dumps")
+        protected void operate() {
+            SubstrateJVM.getTypeRepository().preparePreviousEpochSnapshot();
         }
     }
 }
