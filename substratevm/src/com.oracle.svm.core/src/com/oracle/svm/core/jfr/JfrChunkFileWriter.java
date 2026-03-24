@@ -534,7 +534,7 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
         } else {
             getFileSupport().writeByte(fd, StringEncoding.UTF8_BYTE_ARRAY.getValue());
 
-            int length = UninterruptibleUtils.String.modifiedUTF8Length(str, false);
+            int length = UninterruptibleUtils.String.utf8Length(str, false);
             writeCompressedInt(length);
             int bufferSize = 64;
             Pointer buffer = StackValue.get(bufferSize);
@@ -545,14 +545,14 @@ public final class JfrChunkFileWriter implements JfrChunkWriter {
                 // Fill up the buffer as much as possible
                 Pointer pos = buffer;
                 while (charsWritten < str.length()) {
-                    char ch = UninterruptibleUtils.String.charAt(str, charsWritten);
-                    int nextCharSize = UninterruptibleUtils.String.modifiedUTF8Length(ch);
+                    int cp = UninterruptibleUtils.String.codePointAt(str, charsWritten);
+                    int nextCharSize = UninterruptibleUtils.String.utf8Length(cp);
                     if (pos.add(nextCharSize).aboveThan(bufferEnd)) {
                         // buffer is too full to add the next char
                         break;
                     }
-                    pos = UninterruptibleUtils.String.writeModifiedUTF8(pos, ch);
-                    charsWritten++;
+                    pos = UninterruptibleUtils.String.writeUTF8(pos, cp);
+                    charsWritten += UninterruptibleUtils.String.charCount(cp);
                 }
                 // Write the contents of the buffer to disk
                 UnsignedWord bytesToDisk = pos.subtract(buffer);

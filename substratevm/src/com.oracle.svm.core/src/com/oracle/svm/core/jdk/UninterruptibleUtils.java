@@ -34,6 +34,7 @@ import org.graalvm.word.WordBase;
 
 import com.oracle.svm.shared.util.SubstrateUtil;
 import com.oracle.svm.guest.staging.Uninterruptible;
+import com.oracle.svm.shared.util.BasedOnJDKFile;
 import com.oracle.svm.shared.util.VMError;
 
 import jdk.graal.compiler.core.common.SuppressFBWarnings;
@@ -562,6 +563,36 @@ public class UninterruptibleUtils {
         }
 
         /**
+         * Gets the number of bytes for a char in UTF-8 format.
+         */
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static int utf8Length(char c) {
+            if (c <= 0x007F) {
+                return 1;
+            } else if (c <= 0x07FF) {
+                return 2;
+            } else {
+                return 3;
+            }
+        }
+
+        /**
+         * Gets the number of bytes for a code point in UTF-8 format.
+         */
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static int utf8Length(int codePoint) {
+            if (codePoint <= 0x007F) {
+                return 1;
+            } else if (codePoint <= 0x07FF) {
+                return 2;
+            } else if (codePoint <= 0xFFFF) {
+                return 3;
+            } else {
+                return 4;
+            }
+        }
+
+        /**
          * Write a char in modified UTF8 format into the buffer.
          */
         @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
@@ -579,6 +610,42 @@ public class UninterruptibleUtils {
                 pos.writeByte(1, (byte) (0x80 | ((c >> 6) & 0x3F)));
                 pos.writeByte(2, (byte) (0x80 | (c & 0x3F)));
                 pos = pos.add(3);
+            }
+            return pos;
+        }
+
+        /**
+         * Write a char in UTF-8 format into the buffer.
+         */
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static Pointer writeUTF8(Pointer buffer, char c) {
+            return writeUTF8(buffer, (int) c);
+        }
+
+        /**
+         * Write a code point in UTF-8 format into the buffer.
+         */
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static Pointer writeUTF8(Pointer buffer, int codePoint) {
+            Pointer pos = buffer;
+            if (codePoint <= 0x007F) {
+                pos.writeByte(0, (byte) codePoint);
+                pos = pos.add(1);
+            } else if (codePoint <= 0x07FF) {
+                pos.writeByte(0, (byte) (0xC0 | (codePoint >> 6)));
+                pos.writeByte(1, (byte) (0x80 | (codePoint & 0x3F)));
+                pos = pos.add(2);
+            } else if (codePoint <= 0xFFFF) {
+                pos.writeByte(0, (byte) (0xE0 | (codePoint >> 12)));
+                pos.writeByte(1, (byte) (0x80 | ((codePoint >> 6) & 0x3F)));
+                pos.writeByte(2, (byte) (0x80 | (codePoint & 0x3F)));
+                pos = pos.add(3);
+            } else {
+                pos.writeByte(0, (byte) (0xF0 | (codePoint >> 18)));
+                pos.writeByte(1, (byte) (0x80 | ((codePoint >> 12) & 0x3F)));
+                pos.writeByte(2, (byte) (0x80 | ((codePoint >> 6) & 0x3F)));
+                pos.writeByte(3, (byte) (0x80 | (codePoint & 0x3F)));
+                pos = pos.add(4);
             }
             return pos;
         }
@@ -602,6 +669,41 @@ public class UninterruptibleUtils {
                     ch = replacer.replace(ch);
                 }
                 result += modifiedUTF8Length(ch);
+            }
+
+            return result + (addNullTerminator ? 1 : 0);
+        }
+
+        /**
+         * Gets the length of {@code string} when encoded using UTF-8.
+         */
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static int utf8Length(java.lang.String string, boolean addNullTerminator) {
+            return utf8Length(string, addNullTerminator, null);
+        }
+
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static int utf8Length(java.lang.String string, boolean addNullTerminator, CharReplacer replacer) {
+            int result = 0;
+            for (int index = 0; index < string.length(); index++) {
+                char ch = charAt(string, index);
+                if (replacer != null) {
+                    ch = replacer.replace(ch);
+                }
+                if (isHighSurrogate(ch) && index + 1 < string.length()) {
+                    char low = charAt(string, index + 1);
+                    if (replacer != null) {
+                        low = replacer.replace(low);
+                    }
+                    if (isLowSurrogate(low)) {
+                        result += utf8Length(toCodePoint(ch, low));
+                        // Checkstyle: stop
+                        index++;
+                        // Checkstyle: resume
+                        continue;
+                    }
+                }
+                result += utf8Length(ch);
             }
 
             return result + (addNullTerminator ? 1 : 0);
@@ -641,6 +743,99 @@ public class UninterruptibleUtils {
             }
             VMError.guarantee(pos.belowOrEqual(bufferEnd), "Must not write out of bounds.");
             return pos;
+        }
+
+        /**
+         * Writes the encoded {@code string} into the given {@code buffer} using UTF-8.
+         *
+         * @return pointer on new position in buffer.
+         */
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static Pointer toUTF8(java.lang.String string, Pointer buffer, Pointer bufferEnd, boolean addNullTerminator) {
+            return toUTF8(string, buffer, bufferEnd, addNullTerminator, null);
+        }
+
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static Pointer toUTF8(java.lang.String string, Pointer buffer, Pointer bufferEnd, boolean addNullTerminator, CharReplacer replacer) {
+            return toUTF8(string, string.length(), buffer, bufferEnd, addNullTerminator, replacer);
+        }
+
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static Pointer toUTF8(java.lang.String string, int stringLength, Pointer buffer, Pointer bufferEnd, boolean addNullTerminator, CharReplacer replacer) {
+            Pointer pos = buffer;
+            for (int index = 0; index < stringLength; index++) {
+                char ch = charAt(string, index);
+                if (replacer != null) {
+                    ch = replacer.replace(ch);
+                }
+                if (isHighSurrogate(ch) && index + 1 < stringLength) {
+                    char low = charAt(string, index + 1);
+                    if (replacer != null) {
+                        low = replacer.replace(low);
+                    }
+                    if (isLowSurrogate(low)) {
+                        pos = writeUTF8(pos, toCodePoint(ch, low));
+                        // Checkstyle: stop
+                        index++;
+                        // Checkstyle: resume
+                        continue;
+                    }
+                }
+                pos = writeUTF8(pos, ch);
+            }
+
+            if (addNullTerminator) {
+                pos.writeByte(0, (byte) 0);
+                pos = pos.add(1);
+            }
+            VMError.guarantee(pos.belowOrEqual(bufferEnd), "Must not write out of bounds.");
+            return pos;
+        }
+
+        /**
+         * Returns the Unicode code point at the given index in the string, combining surrogate
+         * pairs into a single code point when applicable. Use {@link Character#charCount} on the
+         * result to determine how many {@code char}s were consumed (1 or 2).
+         */
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static int codePointAt(java.lang.String string, int index) {
+            char ch = charAt(string, index);
+            if (isHighSurrogate(ch) && index + 1 < string.length()) {
+                char low = charAt(string, index + 1);
+                if (isLowSurrogate(low)) {
+                    return toCodePoint(ch, low);
+                }
+            }
+            return ch;
+        }
+
+        @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-27%2B14/src/java.base/share/classes/java/lang/Character.java#L9642-L9644")
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static boolean isHighSurrogate(char ch) {
+            // Help VM constant-fold; MAX_HIGH_SURROGATE + 1 == MIN_LOW_SURROGATE
+            return ch >= Character.MIN_HIGH_SURROGATE && ch < (Character.MAX_HIGH_SURROGATE + 1);
+        }
+
+        @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-27%2B14/src/java.base/share/classes/java/lang/Character.java#L9666-L9668")
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static boolean isLowSurrogate(char ch) {
+            return ch >= Character.MIN_LOW_SURROGATE && ch < (Character.MAX_LOW_SURROGATE + 1);
+        }
+
+        @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-27%2B14/src/java.base/share/classes/java/lang/Character.java#L9748-L9756")
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static int toCodePoint(char high, char low) {
+            // Optimized form of:
+            // return ((high - MIN_HIGH_SURROGATE) << 10)
+            // + (low - MIN_LOW_SURROGATE)
+            // + MIN_SUPPLEMENTARY_CODE_POINT;
+            return ((high << 10) + low) + (Character.MIN_SUPPLEMENTARY_CODE_POINT - (Character.MIN_HIGH_SURROGATE << 10) - Character.MIN_LOW_SURROGATE);
+        }
+
+        @BasedOnJDKFile("https://github.com/openjdk/jdk/blob/jdk-27%2B14/src/java.base/share/classes/java/lang/Character.java#L9732-L9734")
+        @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+        public static int charCount(int codePoint) {
+            return codePoint >= Character.MIN_SUPPLEMENTARY_CODE_POINT ? 2 : 1;
         }
 
         /**

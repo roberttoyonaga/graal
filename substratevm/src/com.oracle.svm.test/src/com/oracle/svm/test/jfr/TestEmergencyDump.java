@@ -51,8 +51,8 @@ public class TestEmergencyDump extends JfrRecordingTest {
     public void test() throws Throwable {
         List<String> expectedStrings = new ArrayList<>();
         expectedStrings.add("first");
-        expectedStrings.add("second");
-        expectedStrings.add("third");
+        expectedStrings.add("second\0nul");
+        expectedStrings.add("third \uD83D\uDE80");
 
         String[] testedEvents = new String[]{"com.jfr.String"};
         Recording recording = startRecording(testedEvents);

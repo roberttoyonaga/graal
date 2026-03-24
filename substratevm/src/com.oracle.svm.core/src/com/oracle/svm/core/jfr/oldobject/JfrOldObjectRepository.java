@@ -122,25 +122,38 @@ public final class JfrOldObjectRepository implements JfrRepository {
         Pointer buffer = UnsafeStackValue.get(OBJECT_DESCRIPTION_MAX_LENGTH);
         Pointer bufferEnd = buffer.add(OBJECT_DESCRIPTION_MAX_LENGTH);
 
-        int prefixLength = UninterruptibleUtils.String.modifiedUTF8Length(prefix, false);
-        int textLength = UninterruptibleUtils.String.modifiedUTF8Length(text, false);
+        int prefixLength = UninterruptibleUtils.String.utf8Length(prefix, false);
         assert prefixLength < OBJECT_DESCRIPTION_MAX_LENGTH - 3;
 
+        Pointer pos = UninterruptibleUtils.String.toUTF8(prefix, buffer, bufferEnd, false);
+        int totalLength = prefixLength;
         boolean tooLong = false;
-        int totalLength = prefixLength + textLength;
-        if (totalLength > OBJECT_DESCRIPTION_MAX_LENGTH) {
-            totalLength = OBJECT_DESCRIPTION_MAX_LENGTH;
-            textLength = OBJECT_DESCRIPTION_MAX_LENGTH - prefixLength - 3;
-            tooLong = true;
+        int index = 0;
+        while (index < text.length()) {
+            int cp = UninterruptibleUtils.String.codePointAt(text, index);
+            int byteLength = UninterruptibleUtils.String.utf8Length(cp);
+            int nextIndex = index + UninterruptibleUtils.String.charCount(cp);
+
+            int remaining = OBJECT_DESCRIPTION_MAX_LENGTH - totalLength;
+            if (remaining < byteLength) {
+                tooLong = true;
+                break;
+            }
+            if (nextIndex < text.length() && remaining < byteLength + 3) {
+                tooLong = true;
+                break;
+            }
+
+            pos = UninterruptibleUtils.String.writeUTF8(pos, cp);
+            totalLength += byteLength;
+            index = nextIndex;
         }
 
-        Pointer pos = UninterruptibleUtils.String.toModifiedUTF8(prefix, buffer, bufferEnd, false);
-        pos = UninterruptibleUtils.String.toModifiedUTF8(text, textLength, pos, bufferEnd, false, null);
-
-        if (tooLong) {
+        if (tooLong && totalLength <= OBJECT_DESCRIPTION_MAX_LENGTH - 3) {
             pos.writeByte(0, (byte) '.');
             pos.writeByte(1, (byte) '.');
             pos.writeByte(2, (byte) '.');
+            totalLength += 3;
         }
 
         JfrNativeEventWriter.putString(data, buffer, totalLength);
