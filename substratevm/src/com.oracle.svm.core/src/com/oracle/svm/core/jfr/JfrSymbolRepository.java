@@ -83,17 +83,17 @@ public class JfrSymbolRepository implements JfrRepository {
 
     @Uninterruptible(reason = "Locking without transition and result is only valid until epoch changes.", callerMustBe = true)
     public long getSymbolId(String imageHeapString, boolean previousEpoch, boolean replaceDotWithSlash) {
-        if (imageHeapString == null || imageHeapString.isEmpty()) {
+        if (imageHeapString == null) {
             return 0;
         }
 
         assert Heap.getHeap().isInImageHeap(imageHeapString);
-        int length = UninterruptibleUtils.String.modifiedUTF8Length(imageHeapString, false);
+        int length = UninterruptibleUtils.String.utf8Length(imageHeapString, false, replaceDotWithSlash ? dotWithSlash : null);
         Pointer buffer = NullableNativeMemory.malloc(length, NmtCategory.JFR);
         if (buffer.isNull()) {
             return 0;
         }
-        UninterruptibleUtils.String.toModifiedUTF8(imageHeapString, imageHeapString.length(), buffer, buffer.add(length), false, replaceDotWithSlash ? dotWithSlash : null);
+        UninterruptibleUtils.String.toUTF8(imageHeapString, imageHeapString.length(), buffer, buffer.add(length), false, replaceDotWithSlash ? dotWithSlash : null);
 
         return getSymbolId(buffer, Word.unsigned(length), previousEpoch);
     }
@@ -147,7 +147,7 @@ public class JfrSymbolRepository implements JfrRepository {
             JfrNativeEventWriter.putLong(data, newEntry.getId());
             JfrNativeEventWriter.putString(data, newEntry.getModifiedUTF8(), (int) newEntry.getLength().rawValue());
             if (!JfrNativeEventWriter.commit(data)) {
-                NullableNativeMemory.free(symbol.getModifiedUTF8());
+                epochData.table.remove(symbol);
                 return 0L;
             }
 

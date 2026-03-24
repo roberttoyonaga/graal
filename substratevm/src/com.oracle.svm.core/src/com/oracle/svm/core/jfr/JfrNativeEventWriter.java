@@ -213,11 +213,11 @@ public final class JfrNativeEventWriter {
         } else if (string.isEmpty()) {
             putByte(data, JfrChunkFileWriter.StringEncoding.EMPTY_STRING.getValue());
         } else {
-            int mUTF8Length = UninterruptibleUtils.String.modifiedUTF8Length(string, false, replacer);
+            int utf8Length = UninterruptibleUtils.String.utf8Length(string, false, replacer);
             putByte(data, JfrChunkFileWriter.StringEncoding.UTF8_BYTE_ARRAY.getValue());
-            putInt(data, mUTF8Length);
-            if (ensureSize(data, mUTF8Length)) {
-                Pointer newPosition = UninterruptibleUtils.String.toModifiedUTF8(string, data.getCurrentPos(), data.getEndPos(), false, replacer);
+            putInt(data, utf8Length);
+            if (ensureSize(data, utf8Length)) {
+                Pointer newPosition = UninterruptibleUtils.String.toUTF8(string, data.getCurrentPos(), data.getEndPos(), false, replacer);
                 data.setCurrentPos(newPosition);
             }
         }
