@@ -28,7 +28,6 @@ import java.util.Collections;
 import java.util.List;
 
 import org.graalvm.nativeimage.ImageSingletons;
-import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.impl.RuntimeClassInitializationSupport;
 
@@ -45,7 +44,6 @@ import com.oracle.svm.core.sampler.SamplerStackTraceSerializer;
 import com.oracle.svm.core.sampler.SamplerStatistics;
 import com.oracle.svm.core.thread.ThreadListenerSupport;
 import com.oracle.svm.core.thread.ThreadListenerSupportFeature;
-import com.oracle.svm.core.util.UserError;
 import com.oracle.svm.shared.Uninterruptible;
 import com.oracle.svm.shared.singletons.traits.BuiltinTraits.BuildtimeAccessOnly;
 import com.oracle.svm.shared.singletons.traits.BuiltinTraits.Disallowed;
@@ -125,11 +123,6 @@ public class JfrFeature implements InternalFeature {
     }
 
     public static boolean isInConfiguration(boolean allowPrinting) {
-        boolean systemSupported = osSupported();
-        if (HOSTED_ENABLED && !systemSupported) {
-            throw UserError.abort("FlightRecorder cannot be used to profile the image generator on this platform. " +
-                            "The image generator can only be profiled on platforms where FlightRecoder is also supported at run time.");
-        }
         boolean runtimeEnabled = VMInspectionOptions.hasJfrSupport();
         if (HOSTED_ENABLED && !runtimeEnabled) {
             if (allowPrinting) {
@@ -142,11 +135,7 @@ public class JfrFeature implements InternalFeature {
             // GR-68066 support JFR in layered images
             return false;
         }
-        return runtimeEnabled && systemSupported;
-    }
-
-    private static boolean osSupported() {
-        return Platform.includedIn(Platform.LINUX.class) || Platform.includedIn(Platform.DARWIN.class);
+        return runtimeEnabled;
     }
 
     /**

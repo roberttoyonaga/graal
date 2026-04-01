@@ -50,7 +50,7 @@ import com.oracle.svm.test.jfr.events.StringEvent;
 import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedEvent;
 
-public class TestEmergencyDumpRecoveredOutOfMemory extends JfrRecordingTest {
+public class TestEmergencyDumpRecoveredOutOfMemory extends JfrEmergencyDumpTest {
     private static final String STRING_EVENT_NAME = "com.jfr.String";
     private static final String OUT_OF_MEMORY_REASON = "Out of Memory";
     private static final int ITERATIONS = 3;

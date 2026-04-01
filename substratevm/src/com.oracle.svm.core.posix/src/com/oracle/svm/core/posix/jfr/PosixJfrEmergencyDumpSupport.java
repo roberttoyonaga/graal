@@ -33,6 +33,7 @@ import com.oracle.svm.core.posix.headers.Dirent;
 import com.oracle.svm.core.posix.headers.Errno;
 import com.oracle.svm.core.posix.headers.Fcntl;
 import com.oracle.svm.core.posix.headers.Unistd;
+import org.graalvm.nativeimage.impl.InternalPlatform;
 import org.graalvm.word.Pointer;
 import org.graalvm.word.impl.Word;
 import org.graalvm.nativeimage.c.type.CCharPointer;
@@ -602,7 +603,7 @@ public class PosixJfrEmergencyDumpSupport implements com.oracle.svm.core.jfr.Jfr
 class PosixJfrEmergencyDumpFeature implements InternalFeature {
     @Override
     public boolean isInConfiguration(IsInConfigurationAccess access) {
-        return VMInspectionOptions.hasJfrSupport();
+        return VMInspectionOptions.hasJfrSupport() && !Platform.includedIn(InternalPlatform.WINDOWS_BASE.class);
     }
 
     @Override
